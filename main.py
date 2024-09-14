@@ -5,7 +5,7 @@ from similarity import find_changes
 
 model = SentenceTransformer('distiluse-base-multilingual-cased-v2')
 file_path = 'test.docx'
-filename = 'test_new_rag.xlsx'  # Replace with your Excel file path
+filename = 'test_new_rag.xlsx'
 
 #initialing
 excel_value = excel_to_list(filename)
