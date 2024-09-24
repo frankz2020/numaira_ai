@@ -45,6 +45,7 @@ def excel_to_list(filename):
         for j, col_name in enumerate(col_names):
             value = data[i, j]
             value_str = format_value(value)
+
             result.append([row_name, col_name, value_str])
 
     return result

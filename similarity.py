@@ -1,4 +1,5 @@
 import re
+import time
 from document_processing import embed_text
 from sklearn.metrics.pairwise import cosine_similarity
 def find_relevant_sentences(sentences, target_text, model, threshold):
@@ -26,15 +27,23 @@ def check_values(old_doc_value, target):
 
 def find_changes(excel_value, sentences, model, threshold):
     changed_sentences = {}
-
+    totel_find_sentences_time=0
+    total_input_change_time=0
     for target_text in excel_value:
+
+        one_find_sentences_time=time.time()
         target = str(target_text[0]) + "," + str(target_text[1])
         similar_sentences = find_relevant_sentences(sentences, target, model, threshold)
-        
+        one_find_sentences_time = time.time() - one_find_sentences_time
+        totel_find_sentences_time=totel_find_sentences_time+one_find_sentences_time
+
         if not similar_sentences:
             print("No similar sentences found for target:", target)
             continue
-        
+
+
+        #该步骤不耗时
+        one_input_change_time=time.time()
         for sentence, similarity in similar_sentences:
             if check_values(sentence, target):
                 continue
@@ -47,4 +56,7 @@ def find_changes(excel_value, sentences, model, threshold):
             except ValueError:
                 print("valueError")
                 continue
-    return changed_sentences
+        one_input_change_time = time.time() - one_input_change_time
+        total_input_change_time=total_input_change_time+one_input_change_time
+
+    return changed_sentences,totel_find_sentences_time,total_input_change_time
