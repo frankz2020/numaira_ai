@@ -1,6 +1,8 @@
 import pandas as pd
 from docx import Document
 import re
+
+
 def read_docx(file_path):
     doc = Document(file_path)
     full_text = ' '.join(para.text for para in doc.paragraphs)
@@ -8,12 +10,14 @@ def read_docx(file_path):
     text_segments = [segment.strip() for segment in text_segments if segment.strip()]
     return text_segments
 
+
 def excel_to_list(filename):
     # to be coordinated
     df = pd.read_excel(filename, header=None)
     row_names = df.iloc[1:, 0].tolist()
     col_names = df.iloc[0, 1:].tolist()
     data = df.iloc[1:, 1:].values
+
     def format_value(value):
         try:
             num = float(value)
@@ -49,6 +53,7 @@ def excel_to_list(filename):
             result.append([row_name, col_name, value_str])
 
     return result
+
 
 def embed_text(text, model):
     return model.encode(text)
