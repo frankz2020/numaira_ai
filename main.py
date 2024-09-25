@@ -21,19 +21,19 @@ initialing_time=time.time()-initialing_time
 changed_sentences = {}
 threshold=0.5
 
+# find_changes
 find_changes_time=time.time()
 changed_sentences,total_find_sentences_time,total_input_change_time = find_changes(excel_value, sentences, model, threshold)
 find_changes_time=time.time()-find_changes_time
 
+# format_maps
 changed_sentences_time=time.time()
-for key, values in changed_sentences.items():
-    temp = sentences[key]
-    for value in values:
-        temp = format_maps(temp, value[0],value[1])
-    sentences[key] = temp
+format_maps(changed_sentences,sentences)
 changed_sentences_time=time.time()-changed_sentences_time
 end_time=time.time()
-+
+
+
+#time calculation
 total_time=end_time-start_time
 print("total_time: "+str(total_time))
 print("initialing_time: "+str(initialing_time))
