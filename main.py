@@ -1,10 +1,11 @@
 import os
 import time
+import asyncio
 
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 from sentence_transformers import SentenceTransformer
-from format_mapping import format_maps
+from async_format import format_maps
 from document_processing import excel_to_list, read_docx
 from similarity import find_changes
 
@@ -30,7 +31,7 @@ find_changes_time = time.time() - find_changes_time
 
 # format_maps
 changed_sentences_time = time.time()
-format_maps(changed_sentences, sentences)
+asyncio.run(format_maps(changed_sentences, sentences))
 changed_sentences_time = time.time() - changed_sentences_time
 end_time = time.time()
 
