@@ -5,10 +5,12 @@ api_key = "sk-1fc2f2739d444a1690d390e9cfdd8b0c"
 
 
 async def format_maps(changed_sentences, sentences):
+    tasks = []
+    sentences_index = []
     for key, values in changed_sentences.items():
         temp = sentences[key]
         # 使用 asyncio.gather() 并发执行所有 request_llm
-        tasks = [request_llm(temp, value[0], value[1]) for value in values]
+        tasks.append(request_llm(temp, value[0], value[1]) for value in values]
         responses = await asyncio.gather(*tasks)  # 并发运行任务
 
         # 处理每个响应，获取确切的词语

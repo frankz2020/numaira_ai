@@ -36,9 +36,8 @@ def find_changes(excel_value, sentences, model, threshold):
     totel_find_sentences_time = 0
     total_input_change_time = 0
     for target_text in excel_value:
-
         one_find_sentences_time = time.time()
-        target = str(target_text[0]) + "," + str(target_text[1])
+        target = ",".join(target_text[0])
         similar_sentences = find_relevant_sentences(sentences, target, model, threshold)
         one_find_sentences_time = time.time() - one_find_sentences_time
         totel_find_sentences_time = totel_find_sentences_time + one_find_sentences_time
@@ -57,7 +56,7 @@ def find_changes(excel_value, sentences, model, threshold):
                 if sentence_index not in changed_sentences:
                     changed_sentences[sentence_index] = []
 
-                changed_sentences[sentence_index].append([target, target_text[2]])
+                changed_sentences[sentence_index].append([target, target_text[1]])
             except ValueError:
                 print("valueError")
                 continue

@@ -5,24 +5,38 @@ api_key = "sk-1fc2f2739d444a1690d390e9cfdd8b0c"
 
 
 async def format_maps(changed_sentences, sentences):
+    tasks=[]
+    sentences_index=[]
     for key, values in changed_sentences.items():
         temp = sentences[key]
+        # change_name=[]
+        # change_value=[]
+        # print(key,values,temp)
+        # for value in values :
+        #     change_name.append(value[0])
+        #     change_value.append(value[1])
         # 使用 asyncio.gather() 并发执行所有 request_llm
-        tasks = [request_llm(temp, value[0], value[1]) for value in values]
-        responses = await asyncio.gather(*tasks)  # 并发运行任务
+        tasks.append(request_llm(temp, values))
+        sentences_index.append(key)
+    responses = await asyncio.gather(*tasks)  # 并发运行任务
 
-        # 处理每个响应，获取确切的词语
-        for response in responses:
-            words = get_exact_words(response)
-            sentences[key] = temp
-    return words
+    # 处理每个响应，获取确切的词语
+    for response, key in zip(responses, sentences_index):
+        words = get_exact_words(response)
+        sentences[key] = words
+    return sentences
 
 
-async def request_llm(old_doc_value, excel_value_1, excel_value_2):
-    prompt = (
-        f"请将'{excel_value_1}'在{old_doc_value}中对应的数据改为'{excel_value_2}'并输出修改后文字。"
-        f"注意其余文字内容要原封不动。若本身就对应，请返回一个空的列表，不要做任何别的事"
-    )
+async def request_llm(old_doc_value, values):
+    prompt=""
+    for value in values:
+        excel_value_1 = value[0]
+        excel_value_2 = value[1]
+        sentence = f"请将'{excel_value_1}'在{old_doc_value}中对应的数据改为'{excel_value_2}'并输出修改后文字。"
+        prompt += sentence + "\n"
+
+    prompt+= f"要求请仔细鉴别名词保证一定能在句中有语义上的对应。注意其余文字内容要原封不动。若本身就对应，请返回一个空的列表，不要做任何别的事。若未找到对应数据，请不要修改直接返回，对每句话都进行一遍，最后返回一句话"
+    print(prompt)
 
     messages = [
         {'role': 'system',
