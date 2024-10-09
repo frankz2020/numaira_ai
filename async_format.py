@@ -17,7 +17,7 @@ async def format_maps(changed_sentences, sentences):
         #     change_value.append(value[1])
         # 使用 asyncio.gather() 并发执行所有 request_llm
         tasks.append(request_llm(temp, values))
-        sentences_index.append(key)
+        sentences_index.append(key) 
     responses = await asyncio.gather(*tasks)  # 并发运行任务
 
     # 处理每个响应，获取确切的词语
