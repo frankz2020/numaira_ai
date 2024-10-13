@@ -1,6 +1,8 @@
 import os
 import time
 import asyncio
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
@@ -8,47 +10,48 @@ from sentence_transformers import SentenceTransformer
 from async_format import format_maps
 from document_processing import excel_to_list, read_docx,dict_to_list
 from similarity import find_changes
+from selection import selection
 
 model = SentenceTransformer('distiluse-base-multilingual-cased-v2')
 file_path = 'test.docx'
 filename = 'test_new_rag.xlsx'
 
 # initialing
-start_time = time.time()
-initialing_time = time.time()
-excel_value = excel_to_list(filename)
+# start_time = time.time()
+# initialing_time = time.time()
+# excel_value = excel_to_list(filename)
 excel_value = dict_to_list(0)
 sentences = read_docx(file_path)
-initialing_time = time.time() - initialing_time
-print('\n\n\n\n')
+# initialing_time = time.time() - initialing_time
+
 changed_sentences = {}
 threshold = 0.5
 
 # find_changes
-find_changes_time = time.time()
+# find_changes_time = time.time()
 changed_sentences, total_find_sentences_time, total_input_change_time = find_changes(excel_value, sentences, model,
                                                                                      threshold)
-find_changes_time = time.time() - find_changes_time
+# find_changes_time = time.time() - find_changes_time
 
 # format_maps
-changed_sentences_time = time.time()
+# changed_sentences_time = time.time()
 sentences=asyncio.run(format_maps(changed_sentences, sentences))
-changed_sentences_time = time.time() - changed_sentences_time
-end_time = time.time()
-
-# time calculation
-total_time = end_time - start_time
-print("total_time: " + str(total_time))
-print("initialing_time: " + str(initialing_time))
-print("find_changes_time: " + str(find_changes_time))
-print("changed_sentences_time: " + str(changed_sentences_time))
-print('/n/n/n')
-print("initialing_time: " + str(initialing_time / total_time))
-print("find_changes_time: " + str(find_changes_time / total_time))
-print("changed_sentences_time: " + str(changed_sentences_time / total_time))
+# changed_sentences_time = time.time() - changed_sentences_time
+# end_time = time.time()
+# # time calculation
+# total_time = end_time - start_time
+# print("total_time: " + str(total_time))
+# print("initialing_time: " + str(initialing_time))
+# print("find_changes_time: " + str(find_changes_time))
+# print("changed_sentences_time: " + str(changed_sentences_time))
+# print('/n/n/n')
+# print("initialing_time: " + str(initialing_time / total_time))
+# print("find_changes_time: " + str(find_changes_time / total_time))
+# print("changed_sentences_time: " + str(changed_sentences_time / total_time))
 
 for key in changed_sentences:
     print(sentences[key])
+    
 # 画一个饼状图
 # import matplotlib.pyplot as plt
 #

@@ -1,0 +1,2 @@
+
+print(changed_sentences)

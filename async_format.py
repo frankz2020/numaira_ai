@@ -16,6 +16,8 @@ async def format_maps(changed_sentences, sentences):
         #     change_name.append(value[0])
         #     change_value.append(value[1])
         # 使用 asyncio.gather() 并发执行所有 request_llm
+        
+        
         tasks.append(request_llm(temp, values))
         sentences_index.append(key) 
     responses = await asyncio.gather(*tasks)  # 并发运行任务
@@ -28,20 +30,20 @@ async def format_maps(changed_sentences, sentences):
 
 
 async def request_llm(old_doc_value, values):
-    prompt=""
+    prompt = ""
     for value in values:
         excel_value_1 = value[0]
         excel_value_2 = value[1]
-        sentence = f"请将'{excel_value_1}'在{old_doc_value}中对应的数据改为'{excel_value_2}'并输出修改后文字。"
+        sentence = f"Please change the data corresponding to '{excel_value_1}' in this sentence '{old_doc_value} ' to '{excel_value_2}' and output the modified text."
         prompt += sentence + "\n"
 
-    prompt+= f"要求请仔细鉴别名词保证一定能在句中有语义上的对应。注意其余文字内容要原封不动。若本身就对应，请返回一个空的列表，不要做任何别的事。若未找到对应数据，请不要修改直接返回，对每句话都进行一遍，最后返回一句话"
-    print(prompt)
+    prompt += "Please carefully identify nouns to ensure there is a semantic correspondence in the sentence. Note that the rest of the text content should remain unchanged. If it already corresponds, please return an empty list and don't do anything else. If no corresponding data is found, please return without modification. Go through this process for each sentence, and finally return one sentence."
+    # print(prompt)
 
     messages = [
         {'role': 'system',
-         'content': '你是一个严谨的金融分析员，你在修改报告的时候需要根据新的信息来修改文段，只回答修改后的文字。'
-                    '请对时间关键词保持敏感，若不匹配或无需修改，请返回一个空的列表[]'},
+         'content': 'You are a rigorous financial analyst. When modifying reports, you need to update paragraphs based on new information. Only respond with the modified text.'
+                    'Please be sensitive to time-related keywords. If there is no match or no need for modification, please return an empty list []'},
         {'role': 'user', 'content': prompt}
     ]
 

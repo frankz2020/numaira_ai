@@ -16,6 +16,8 @@ def dict_to_list(dictionary):
         ("Total revenues", "Three Months Ended June 30, 2023"): "24927000000",
         ("Net income attributable to common stockholders", "Three Months Ended June 30, 2023"): "2703000000",
         ("Net income attributable to common stockholders", "Six Months Ended June 30, 2023"): "5216000000",
+        ("Net income", "Six Months Ended June 30, 2023"): "5153000000",
+        ("Net income", "Three Months Ended June 30, 2023"): "5153000000",
     }
 
     def format_value(value):

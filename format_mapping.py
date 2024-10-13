@@ -10,7 +10,7 @@ async def format_maps(changed_sentences, sentences):
     for key, values in changed_sentences.items():
         temp = sentences[key]
         # 使用 asyncio.gather() 并发执行所有 request_llm
-        tasks.append(request_llm(temp, value[0], value[1]) for value in values]
+        tasks.append(request_llm(temp, value[0], value[1]) for value in values)
         responses = await asyncio.gather(*tasks)  # 并发运行任务
 
         # 处理每个响应，获取确切的词语
@@ -22,14 +22,14 @@ async def format_maps(changed_sentences, sentences):
 
 async def request_llm(old_doc_value, excel_value_1, excel_value_2):
     prompt = (
-        f"请将'{excel_value_1}'在{old_doc_value}中对应的数据改为'{excel_value_2}'并输出修改后文字。"
-        f"注意其余文字内容要原封不动。若本身就对应，请返回一个空的列表，不要做任何别的事"
+        f"Please change the data corresponding to '{excel_value_1}' in {old_doc_value} to '{excel_value_2}' and output the modified text."
+        f"Note that the rest of the text content should remain unchanged. If it already corresponds, please return an empty list and don't do anything else."
     )
 
     messages = [
         {'role': 'system',
-         'content': '你是一个严谨的金融分析员，你在修改报告的时候需要根据新的信息来修改文段，只回答修改后的文字。'
-                    '请对时间关键词保持敏感，若不匹配或无需修改，请返回一个空的列表[]'},
+         'content': 'You are a rigorous financial analyst. When modifying reports, you need to update paragraphs based on new information. Only respond with the modified text.'
+                    'Please be sensitive to time-related keywords. If there is no match or no need for modification, please return an empty list []'},
         {'role': 'user', 'content': prompt}
     ]
 
