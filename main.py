@@ -31,8 +31,10 @@ threshold = 0.5
 # find_changes_time = time.time()
 changed_sentences, total_find_sentences_time, total_input_change_time = find_changes(excel_value, sentences, model,
                                                                                      threshold)
-# find_changes_time = time.time() - find_changes_time
-
+# find_changes_time = time.time() - find_changes_time\
+    
+# filtering irrelevant sentences
+changed_sentences = selection(changed_sentences, sentences)
 # format_maps
 # changed_sentences_time = time.time()
 sentences=asyncio.run(format_maps(changed_sentences, sentences))
