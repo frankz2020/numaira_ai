@@ -34,15 +34,15 @@ async def request_llm(old_doc_value, values):
     for value in values:
         excel_value_1 = value[0]
         excel_value_2 = value[1]
-        sentence = f"Please change the data corresponding to '{excel_value_1}' in this sentence '{old_doc_value} ' to '{excel_value_2}' and output the modified text."
+        sentence = f"Given the infomation and time of '{excel_value_1}', change this sentence corresponding value '{old_doc_value} ' to '{excel_value_2}', be sensitive to time-related term; and output the modified text, directly without any other information."
         prompt += sentence + "\n"
 
-    prompt += "Please carefully identify nouns to ensure there is a semantic correspondence in the sentence. Note that the rest of the text content should remain unchanged. If it already corresponds, please return an empty list and don't do anything else. If no corresponding data is found, please return without modification. Go through this process for each sentence, and finally return one sentence."
+    prompt += "Please carefully identify nouns to ensure there is a semantic correspondence in the sentence. Note that the rest of the text content should remain unchanged. If it already corresponds, please return an empty list, [], and don't do anything else. If no corresponding data is found, please return without modification."
     # print(prompt)
 
     messages = [
         {'role': 'system',
-         'content': 'You are a rigorous financial analyst. When modifying reports, you need to update paragraphs based on new information. Only respond with the modified text.'
+         'content': 'You are a rigorous financial analyst. Only respond with the modified text.'
                     'Please be sensitive to time-related keywords. If there is no match or no need for modification, please return an empty list []'},
         {'role': 'user', 'content': prompt}
     ]
@@ -50,12 +50,11 @@ async def request_llm(old_doc_value, values):
     # 异步调用 Generation.call
     response = await asyncio.to_thread(
         Generation.call,
-        model="qwen-max",
+        model="qwen2.5-72b-instruct",
         messages=messages,
         result_format='message',
         api_key=api_key
     )
-
     return response
 
 
@@ -68,4 +67,7 @@ def get_exact_words(response):
                 if 'message' in choice and 'content' in choice['message']:
                     exact_words = choice['message']['content']
                     break
+    
+    exact_words = exact_words.replace('[', '').replace(']', '')
     return exact_words
+    

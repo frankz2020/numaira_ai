@@ -1,7 +1,7 @@
 import re
 import time
-from document_processing import embed_text
 from sklearn.metrics.pairwise import cosine_similarity
+from funnels.document_processing import embed_text
 
 
 def find_relevant_sentences(sentences, target_text, model, threshold):

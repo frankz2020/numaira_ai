@@ -1,5 +1,5 @@
 import os
-import time
+# import time
 import asyncio
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -7,10 +7,8 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 from sentence_transformers import SentenceTransformer
-from async_format import format_maps
-from document_processing import excel_to_list, read_docx,dict_to_list
-from similarity import find_changes
-from selection import selection
+from RAG import format_maps, find_changes
+from funnels import read_docx,dict_to_list, selection
 
 model = SentenceTransformer('distiluse-base-multilingual-cased-v2')
 file_path = 'test.docx'

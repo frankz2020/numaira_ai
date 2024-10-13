@@ -1,5 +1,4 @@
-# filtering irrelevant sentences
-# changed_sentences = selection(changed_sentences, sentences)
-# # format_maps
-# # changed_sentences_time = time.time()
-# sentences=asyncio.run(format_maps(changed_sentences, sentences))
+from RAG.async_format import format_maps
+from funnels.document_processing import read_docx,dict_to_list
+from RAG.similarity import find_changes
+from funnels.selection import selection

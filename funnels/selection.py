@@ -1,5 +1,5 @@
 from dashscope import Generation
-from document_processing import read_docx
+from funnels.document_processing import read_docx
 
 api_key = "sk-1fc2f2739d444a1690d390e9cfdd8b0c"
 
@@ -28,7 +28,7 @@ def llm_select(sen, to_be_selected):
         {'role': 'user', 'content': prompt}
     ]
     response = Generation.call(
-        model="qwen-max",
+        model="qwen2.5-72b-instruct",
         messages=messages,
         result_format='message',
         api_key=api_key
