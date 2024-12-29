@@ -1,1 +1,6 @@
 .env
+test_data/
+*.xlsx
+*.docx
+*.xml
+*.doc

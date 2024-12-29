@@ -5,40 +5,45 @@ api_key = "sk-1fc2f2739d444a1690d390e9cfdd8b0c"
 
 def selection(changed_sentences, sentences):
     """Filter out irrelevant sentences."""
-    filtered_changes = {}
+    filtered_sentences = {}
     
     for key, values in changed_sentences.items():
-        filtered_values = []
         sentence = sentences[key].lower()
         print(f"\nChecking sentence: {sentence}")
         
+        matches = 0
         for value in values:
-            # Handle both string and list inputs for target
-            if isinstance(value[0], list):
-                target = ' '.join(value[0])
-            else:
-                target = value[0]
-            
-            # Clean and normalize the target
-            target = target.lower().strip()
+            target = ' '.join(value[0]).lower()
             print(f"Checking target: {target}")
             
-            # Split into components and check if enough components match
-            components = [comp.strip() for comp in target.split(',') if comp.strip()]
-            matching_components = [comp for comp in components if comp in sentence]
+            # Check if any component of the target appears in the sentence
+            target_components = target.split()
             
-            # If more than half of the components match, consider it valid
-            if len(matching_components) >= len(components) * 0.5:
-                print(f"Match found! {len(matching_components)}/{len(components)} components match")
-                filtered_values.append(value)
+            # Count matching components, but require key terms to match
+            key_terms = ['months', 'ended', 'june', '30', '2023', '2022']
+            matching_components = 0
+            key_terms_matched = 0
+            
+            for comp in target_components:
+                if comp in sentence:
+                    matching_components += 1
+                    if comp in key_terms:
+                        key_terms_matched += 1
+            
+            # Require at least one key term to match and a minimum percentage of components
+            min_match_percentage = 0.5
+            if key_terms_matched > 0 and matching_components / len(target_components) >= min_match_percentage:
+                print(f"Match found! {matching_components}/{len(target_components)} components match")
+                matches += 1
             else:
-                print(f"No match: only {len(matching_components)}/{len(components)} components match")
+                print(f"No match: insufficient component matches or no key terms matched")
         
-        if filtered_values:
-            filtered_changes[key] = filtered_values
-            print(f"Kept sentence {key} with {len(filtered_values)} matches")
+        # If we found any matches, keep this sentence
+        if matches > 0:
+            filtered_sentences[key] = values
+            print(f"Kept sentence {key} with {matches} matches")
     
-    return filtered_changes
+    return filtered_sentences
 
     
 

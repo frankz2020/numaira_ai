@@ -8,66 +8,86 @@ logger = logging.getLogger(__name__)
 api_key = "sk-1fc2f2739d444a1690d390e9cfdd8b0c"
 
 async def format_maps(changed_sentences, sentences):
-    """Format the changed sentences using LLM."""
-    logger = logging.getLogger(__name__)
+    """Format the changed sentences with the new values."""
     logger.info(f"Formatting {len(changed_sentences)} changed sentences")
     
-    for key in changed_sentences:
+    for key, values in changed_sentences.items():
         sentence = sentences[key]
         logger.info(f"Processing sentence: {sentence}")
         
-        # Get all changes for this sentence
-        changes = changed_sentences[key]
-        
-        # Group changes by period
-        three_month_changes = []
-        six_month_changes = []
-        
-        for change in changes:
-            target = change[0] if isinstance(change[0], str) else change[0][0]
-            value = change[1]
-            period = change[0][1] if isinstance(change[0], list) else change[0].split(',')[1].strip()
+        # Group values by category and period
+        value_groups = {}
+        for value in values:
+            category = value[0][0]  # First element is the category
+            period = value[0][1]  # Second element is the period
+            if category not in value_groups:
+                value_groups[category] = {'three_month': [], 'six_month': []}
             
             if 'Three Months' in period:
-                three_month_changes.append((target, value))
+                value_groups[category]['three_month'].append(value[1])
             elif 'Six Months' in period:
-                six_month_changes.append((target, value))
+                value_groups[category]['six_month'].append(value[1])
         
-        # Find the values to replace
-        values = re.findall(r'\$\d+\.\d+\s*billion', sentence)
-        if len(values) >= 2:
-            # Get the values based on what's in the sentence
-            three_month_value = None
-            six_month_value = None
+        # Find all dollar amounts with billion/million
+        pattern = r'\$\d+\.?\d*\s*(billion|million)'
+        matches = list(re.finditer(pattern, sentence, re.IGNORECASE))
+        
+        if len(matches) >= 2:
+            # Track the best matching category
+            best_match = None
+            best_match_score = 0
+            best_values = None
             
-            if 'total revenues' in sentence.lower():
-                # Handle revenue sentence
-                for target, value in three_month_changes:
-                    if 'Total revenues' in target:
-                        three_month_value = value
-                for target, value in six_month_changes:
-                    if 'Total revenues' in target:
-                        six_month_value = value
-            elif 'net income attributable to common stockholders' in sentence.lower():
-                # Handle income sentence
-                for target, value in three_month_changes:
-                    if 'Net income attributable to common stockholders' in target:
-                        three_month_value = value
-                for target, value in six_month_changes:
-                    if 'Net income attributable to common stockholders' in target:
-                        six_month_value = value
+            # For each category, find the most relevant values
+            for category, periods in value_groups.items():
+                three_month_values = periods['three_month']
+                six_month_values = periods['six_month']
+                
+                # Sort values to ensure consistent order
+                three_month_values.sort(reverse=True)
+                six_month_values.sort(reverse=True)
+                
+                # Get the first value that's not "nan" for each period
+                three_month_value = next((v for v in three_month_values if isinstance(v, str) and v.lower() != 'nan'), None)
+                six_month_value = next((v for v in six_month_values if isinstance(v, str) and v.lower() != 'nan'), None)
+                
+                if three_month_value and six_month_value:
+                    # Check if this category's values should be used for this sentence
+                    category_words = category.lower().split()
+                    sentence_lower = sentence.lower()
+                    
+                    # Calculate match score based on word presence and position
+                    match_score = 0
+                    last_pos = -1
+                    for word in category_words:
+                        if word in sentence_lower:
+                            pos = sentence_lower.find(word)
+                            if pos > last_pos:  # Words appear in the same order
+                                match_score += 1
+                                if last_pos != -1 and pos - last_pos < 20:  # Words are close together
+                                    match_score += 0.5
+                            last_pos = pos
+                    
+                    # If this is the best match so far, store it
+                    if match_score > best_match_score:
+                        best_match = category
+                        best_match_score = match_score
+                        best_values = (three_month_value, six_month_value)
             
-            if three_month_value and six_month_value:
-                # Replace the values in order
-                modified = sentence
-                modified = modified.replace(values[0], f"${three_month_value}")
-                modified = modified.replace(values[1], f"${six_month_value}")
-                sentences[key] = modified
-                logger.info(f"Updated sentence to: {modified}")
-            else:
-                logger.warning(f"Could not find matching values for sentence {key}")
-        else:
-            logger.warning(f"Could not find values to replace in sentence {key}")
+            # If we found a good match, update the sentence
+            if best_match and best_match_score > 0:
+                three_month_value, six_month_value = best_values
+                sentence = (
+                    sentence[:matches[0].start()] + 
+                    f"${three_month_value}" +
+                    sentence[matches[0].end():matches[1].start()] +
+                    f"${six_month_value}" +
+                    sentence[matches[1].end():]  # Keep the rest of the sentence
+                )
+                logger.info(f"Updated sentence with {best_match} values: {sentence}")
+                logger.info(f"Used values for {best_match}: 3-month: {three_month_value}, 6-month: {six_month_value}")
+        
+        sentences[key] = sentence
     
     return sentences
 

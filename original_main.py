@@ -8,46 +8,27 @@ os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 from sentence_transformers import SentenceTransformer
 from RAG import format_maps, find_changes
-from funnels import read_docx,dict_to_list, selection
+from funnels import read_docx, excel_to_list, selection
 
 model = SentenceTransformer('distiluse-base-multilingual-cased-v2')
 file_path = 'test.docx'
 filename = 'test_new_rag.xlsx'
 
 # initialing
-# start_time = time.time()
-# initialing_time = time.time()
-# excel_value = excel_to_list(filename)
-excel_value = dict_to_list(0)
+excel_value = excel_to_list(filename)
 sentences = read_docx(file_path)
-# initialing_time = time.time() - initialing_time
 
 changed_sentences = {}
 threshold = 0.5
 
 # find_changes
-# find_changes_time = time.time()
 changed_sentences, total_find_sentences_time, total_input_change_time = find_changes(excel_value, sentences, model,
                                                                                      threshold)
-# find_changes_time = time.time() - find_changes_time\
     
 # filtering irrelevant sentences
 changed_sentences = selection(changed_sentences, sentences)
 # format_maps
-# changed_sentences_time = time.time()
 sentences=asyncio.run(format_maps(changed_sentences, sentences))
-# changed_sentences_time = time.time() - changed_sentences_time
-# end_time = time.time()
-# # time calculation
-# total_time = end_time - start_time
-# print("total_time: " + str(total_time))
-# print("initialing_time: " + str(initialing_time))
-# print("find_changes_time: " + str(find_changes_time))
-# print("changed_sentences_time: " + str(changed_sentences_time))
-# print('/n/n/n')
-# print("initialing_time: " + str(initialing_time / total_time))
-# print("find_changes_time: " + str(find_changes_time / total_time))
-# print("changed_sentences_time: " + str(changed_sentences_time / total_time))
 
 for key in changed_sentences:
     print(sentences[key])

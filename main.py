@@ -122,35 +122,67 @@ def update_document(docx_path, results, output_path):
                     print(f"From: {original_text}")
                     print(f"To: {mod_text}")
                     
-                    # Store formatting information
-                    font_name = None
-                    font_size = None
-                    is_bold = None
-                    is_italic = None
-                    
+                    # Store formatting information from all runs
+                    runs_info = []
                     if paragraph.runs:
-                        first_run = paragraph.runs[0]
-                        font_name = first_run.font.name
-                        font_size = first_run.font.size
-                        is_bold = first_run.font.bold
-                        is_italic = first_run.font.italic
+                        for run in paragraph.runs:
+                            runs_info.append({
+                                'text': run.text,
+                                'font_name': run.font.name,
+                                'font_size': run.font.size,
+                                'bold': run.font.bold,
+                                'italic': run.font.italic,
+                                'underline': run.font.underline,
+                                'color': run.font.color and run.font.color.rgb,
+                                'highlight_color': run.font.highlight_color,
+                            })
                     
                     # Clear the paragraph
                     p = paragraph._p
                     p.clear_content()
                     
-                    # Add new run with modified text
-                    new_run = paragraph.add_run(mod_text)
+                    # Replace the text in the original paragraph
+                    new_text = original_text.replace(orig_text, mod_text)
                     
-                    # Apply stored formatting
-                    if font_name:
-                        new_run.font.name = font_name
-                    if font_size:
-                        new_run.font.size = font_size
-                    if is_bold:
-                        new_run.font.bold = is_bold
-                    if is_italic:
-                        new_run.font.italic = is_italic
+                    # If we have formatting information, try to preserve it
+                    if runs_info:
+                        # Calculate the relative position of each run in the original text
+                        total_length = sum(len(run_info['text']) for run_info in runs_info)
+                        ratios = [len(run_info['text']) / total_length for run_info in runs_info]
+                        
+                        # Split the new text into parts based on the original ratios
+                        current_pos = 0
+                        for i, ratio in enumerate(ratios):
+                            # Calculate the length of this run's text
+                            length = int(len(new_text) * ratio)
+                            if i == len(ratios) - 1:  # Last run gets the remainder
+                                run_text = new_text[current_pos:]
+                            else:
+                                run_text = new_text[current_pos:current_pos + length]
+                            current_pos += length
+                            
+                            # Create new run with preserved formatting
+                            new_run = paragraph.add_run(run_text)
+                            run_info = runs_info[i]
+                            
+                            # Apply stored formatting
+                            if run_info['font_name']:
+                                new_run.font.name = run_info['font_name']
+                            if run_info['font_size']:
+                                new_run.font.size = run_info['font_size']
+                            if run_info['bold']:
+                                new_run.font.bold = run_info['bold']
+                            if run_info['italic']:
+                                new_run.font.italic = run_info['italic']
+                            if run_info['underline']:
+                                new_run.font.underline = run_info['underline']
+                            if run_info['color']:
+                                new_run.font.color.rgb = run_info['color']
+                            if run_info['highlight_color']:
+                                new_run.font.highlight_color = run_info['highlight_color']
+                    else:
+                        # If no formatting info, just add the text as a single run
+                        paragraph.add_run(new_text)
                     
                     changes_made += 1
                     print(f"Successfully updated paragraph")
@@ -170,8 +202,13 @@ def update_document(docx_path, results, output_path):
 
 if __name__ == '__main__':
     # For command line usage
-    file_path = 'test.docx'
-    filename = 'test_new_rag.xlsx'
-    results = process_files(file_path, filename)
+    import sys
+    if len(sys.argv) != 3:
+        print("Usage: python main.py <docx_file> <excel_file>")
+        sys.exit(1)
+    
+    docx_path = sys.argv[1]
+    excel_path = sys.argv[2]
+    results = process_files(docx_path, excel_path)
     for result in results:
         print(result)

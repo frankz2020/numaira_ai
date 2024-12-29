@@ -15,15 +15,6 @@ def read_docx(file_path):
     return text_segments
 
 def dict_to_list(dictionary):
-    dictionary = {
-        ("Total revenues", "Six Months Ended June 30, 2023"): "48256000000",
-        ("Total revenues", "Three Months Ended June 30, 2023"): "24927000000",
-        ("Net income attributable to common stockholders", "Three Months Ended June 30, 2023"): "2703000000",
-        ("Net income attributable to common stockholders", "Six Months Ended June 30, 2023"): "74873000000",
-        ("Net income", "Six Months Ended June 30, 2023"): "5153000000",
-        ("Net income", "Three Months Ended June 30, 2023"): "5153000000",
-    }
-
     def format_value(value):
         try:
             num = float(value)
@@ -64,7 +55,7 @@ def dict_to_list(dictionary):
 def excel_to_list(filename):
     try:
         logger.info(f"Reading Excel file: {filename}")
-        df = pd.read_excel(filename, header=None)
+        df = pd.read_excel(filename, header=None, engine='openpyxl')
         
         if df.empty:
             raise ValueError("Excel file is empty")

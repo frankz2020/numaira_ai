@@ -44,15 +44,20 @@ def find_changes(excel_value, sentences, model, threshold=0.3):
     sentence_list = list(sentences.values()) if isinstance(sentences, dict) else sentences
     sentence_embeddings = model.encode(sentence_list, show_progress_bar=False)
     
-    # Process each Excel value
-    with tqdm(excel_value, desc="Processing Excel values", ncols=100, position=0) as pbar:
-        for value in pbar:
-            # Extract target text
-            if isinstance(value[0], list):
-                # Join the components with spaces for better matching
-                target = ' '.join(value[0])
-            else:
-                target = value[0]
+    # Group Excel values by their categories
+    value_groups = {}
+    for value in excel_value:
+        if isinstance(value[0], list):
+            category = value[0][0]  # First element is the category
+            if category not in value_groups:
+                value_groups[category] = []
+            value_groups[category].append(value)
+    
+    # Process each category of values
+    with tqdm(value_groups.items(), desc="Processing Excel values", ncols=100, position=0) as pbar:
+        for category, values in pbar:
+            # Create target text that includes the category
+            target = f"{category} for the three and six months ended June 30, 2023"
             
             # Create embedding for target
             target_embedding = model.encode([target], show_progress_bar=False)[0]
@@ -65,9 +70,10 @@ def find_changes(excel_value, sentences, model, threshold=0.3):
             
             if matches:
                 max_sim_idx, max_sim = max(matches, key=lambda x: x[1])
+                # Add all values for this category to the sentence
                 if max_sim_idx in changed_sentences:
-                    changed_sentences[max_sim_idx].append(value)
+                    changed_sentences[max_sim_idx].extend(values)
                 else:
-                    changed_sentences[max_sim_idx] = [value]
+                    changed_sentences[max_sim_idx] = values
     
     return changed_sentences, total_find_sentences_time, total_input_change_time
