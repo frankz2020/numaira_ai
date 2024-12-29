@@ -1,6 +1,10 @@
 import pandas as pd
 from docx import Document
 import re
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def read_docx(file_path):
@@ -58,47 +62,66 @@ def dict_to_list(dictionary):
 
 
 def excel_to_list(filename):
-    # to be coordinated
-    df = pd.read_excel(filename, header=None)
-    row_names = df.iloc[1:, 0].tolist()
-    col_names = df.iloc[0, 1:].tolist()
-    data = df.iloc[1:, 1:].values
+    try:
+        logger.info(f"Reading Excel file: {filename}")
+        df = pd.read_excel(filename, header=None)
+        
+        if df.empty:
+            raise ValueError("Excel file is empty")
+            
+        logger.info(f"Excel file shape: {df.shape}")
+        
+        # Extract row names and column names
+        row_names = df.iloc[1:, 0].tolist()
+        col_names = df.iloc[0, 1:].tolist()
+        data = df.iloc[1:, 1:].values
+        
+        logger.info(f"Found {len(row_names)} rows and {len(col_names)} columns")
+        
+        if not row_names or not col_names:
+            raise ValueError("Excel file must have both row names and column names")
 
-    def format_value(value):
-        try:
-            num = float(value)
-            abs_num = abs(num)
-            if abs_num >= 1e9:
-                formatted_num = num / 1e9
-                unit = 'billion'
-            elif abs_num >= 1e6:
-                formatted_num = num / 1e6
-                unit = 'million'
-            elif abs_num >= 1e3:
-                formatted_num = num / 1e3
-                unit = 'thousand'
-            else:
-                formatted_num = num
-                unit = ''
-            formatted_num = round(formatted_num, 2)
-            if unit:
-                value_str = f"{formatted_num:.2f} {unit}"
-            else:
-                value_str = f"{formatted_num:.2f}"
-        except (ValueError, TypeError):
-            value_str = str(value)  # Keep as is if not a number
-        return value_str
+        def format_value(value):
+            try:
+                num = float(value)
+                abs_num = abs(num)
+                if abs_num >= 1e9:
+                    formatted_num = num / 1e9
+                    unit = 'billion'
+                elif abs_num >= 1e6:
+                    formatted_num = num / 1e6
+                    unit = 'million'
+                elif abs_num >= 1e3:
+                    formatted_num = num / 1e3
+                    unit = 'thousand'
+                else:
+                    formatted_num = num
+                    unit = ''
+                formatted_num = round(formatted_num, 2)
+                if unit:
+                    value_str = f"{formatted_num:.2f} {unit}"
+                else:
+                    value_str = f"{formatted_num:.2f}"
+            except (ValueError, TypeError):
+                value_str = str(value)  # Keep as is if not a number
+            return value_str
 
-    result = []
+        result = []
 
-    for i, row_name in enumerate(row_names):
-        for j, col_name in enumerate(col_names):
-            value = data[i, j]
-            value_str = format_value(value)
+        for i, row_name in enumerate(row_names):
+            for j, col_name in enumerate(col_names):
+                if pd.isna(row_name) or pd.isna(col_name):
+                    continue
+                value = data[i, j]
+                value_str = format_value(value)
+                result.append([[str(row_name).strip(), str(col_name).strip()], value_str])
 
-            result.append([[row_name, col_name], value_str])
-
-    return result
+        logger.info(f"Processed {len(result)} data points")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error processing Excel file: {str(e)}")
+        raise ValueError(f"Error processing Excel file: {str(e)}")
 
 
 def embed_text(text, model):

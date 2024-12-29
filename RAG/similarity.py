@@ -1,8 +1,11 @@
 import re
 import time
+import logging
 from sklearn.metrics.pairwise import cosine_similarity
 from funnels.document_processing import embed_text
+from tqdm import tqdm
 
+logger = logging.getLogger(__name__)
 
 def find_relevant_sentences(sentences, target_text, model, threshold):
     target_embedding = embed_text(target_text, model)
@@ -31,36 +34,40 @@ def check_values(old_doc_value, target):
         return True
 
 
-def find_changes(excel_value, sentences, model, threshold):
+def find_changes(excel_value, sentences, model, threshold=0.3):
+    """Find changes in sentences based on Excel values."""
     changed_sentences = {}
-    totel_find_sentences_time = 0
+    total_find_sentences_time = 0
     total_input_change_time = 0
-    for target_text in excel_value:
-        one_find_sentences_time = time.time()
-        target = ",".join(target_text[0])
-        similar_sentences = find_relevant_sentences(sentences, target, model, threshold)
-        one_find_sentences_time = time.time() - one_find_sentences_time
-        totel_find_sentences_time = totel_find_sentences_time + one_find_sentences_time
 
-        if not similar_sentences:
-            print("No similar sentences found for target:", target)
-            continue
-
-        # 该步骤不耗时
-        one_input_change_time = time.time()
-        for sentence, similarity in similar_sentences:
-            if check_values(sentence, target):
-                continue
-            try:
-                sentence_index = sentences.index(sentence)
-                if sentence_index not in changed_sentences:
-                    changed_sentences[sentence_index] = []
-
-                changed_sentences[sentence_index].append([target, target_text[1]])
-            except ValueError:
-                print("valueError")
-                continue
-        one_input_change_time = time.time() - one_input_change_time
-        total_input_change_time = total_input_change_time + one_input_change_time
-
-    return changed_sentences, totel_find_sentences_time, total_input_change_time
+    # Create embeddings for all sentences at once
+    sentence_list = list(sentences.values()) if isinstance(sentences, dict) else sentences
+    sentence_embeddings = model.encode(sentence_list, show_progress_bar=False)
+    
+    # Process each Excel value
+    with tqdm(excel_value, desc="Processing Excel values", ncols=100, position=0) as pbar:
+        for value in pbar:
+            # Extract target text
+            if isinstance(value[0], list):
+                # Join the components with spaces for better matching
+                target = ' '.join(value[0])
+            else:
+                target = value[0]
+            
+            # Create embedding for target
+            target_embedding = model.encode([target], show_progress_bar=False)[0]
+            
+            # Calculate similarities with all sentences at once
+            similarities = cosine_similarity([target_embedding], sentence_embeddings)[0]
+            
+            # Find matches above threshold
+            matches = [(i, sim) for i, sim in enumerate(similarities) if sim > threshold]
+            
+            if matches:
+                max_sim_idx, max_sim = max(matches, key=lambda x: x[1])
+                if max_sim_idx in changed_sentences:
+                    changed_sentences[max_sim_idx].append(value)
+                else:
+                    changed_sentences[max_sim_idx] = [value]
+    
+    return changed_sentences, total_find_sentences_time, total_input_change_time

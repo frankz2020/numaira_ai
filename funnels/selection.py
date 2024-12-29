@@ -3,19 +3,42 @@ from funnels.document_processing import read_docx
 
 api_key = "sk-1fc2f2739d444a1690d390e9cfdd8b0c"
 
-def selection(changed_cell, sentences):
-    for key, values in changed_cell.items():
-        selected_list = []
-        to_be_selected = set()
+def selection(changed_sentences, sentences):
+    """Filter out irrelevant sentences."""
+    filtered_changes = {}
+    
+    for key, values in changed_sentences.items():
+        filtered_values = []
+        sentence = sentences[key].lower()
+        print(f"\nChecking sentence: {sentence}")
+        
         for value in values:
-            items = value[0].split(',')
-            first_item = items[0].strip()
-            to_be_selected.add(first_item)
-        selected_item = llm_select(sentences[key], to_be_selected)
-        selected_list.append(selected_item[2:-2])
-        changed_cell[key] = process_changed_list(changed_cell[key], selected_list)
-
-    return changed_cell
+            # Handle both string and list inputs for target
+            if isinstance(value[0], list):
+                target = ' '.join(value[0])
+            else:
+                target = value[0]
+            
+            # Clean and normalize the target
+            target = target.lower().strip()
+            print(f"Checking target: {target}")
+            
+            # Split into components and check if enough components match
+            components = [comp.strip() for comp in target.split(',') if comp.strip()]
+            matching_components = [comp for comp in components if comp in sentence]
+            
+            # If more than half of the components match, consider it valid
+            if len(matching_components) >= len(components) * 0.5:
+                print(f"Match found! {len(matching_components)}/{len(components)} components match")
+                filtered_values.append(value)
+            else:
+                print(f"No match: only {len(matching_components)}/{len(components)} components match")
+        
+        if filtered_values:
+            filtered_changes[key] = filtered_values
+            print(f"Kept sentence {key} with {len(filtered_values)} matches")
+    
+    return filtered_changes
 
     
 
