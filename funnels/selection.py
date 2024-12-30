@@ -2,11 +2,11 @@ from funnels.document_processing import read_docx
 import re
 from typing import Dict, List, Tuple, Set
 import logging
-from anthropic import Anthropic
 import os
 from dotenv import load_dotenv
 from tqdm import tqdm
 import sys
+from funnels.llm_provider import get_llm_provider
 
 # Load environment variables
 load_dotenv()
@@ -37,110 +37,6 @@ logger.addHandler(console_handler)
 
 # Disable tqdm.write() output when not in progress bar context
 tqdm.write = lambda x, file=None: None
-
-class SemanticMatcher:
-    def __init__(self):
-        """Initialize the matcher with Claude."""
-        api_key = os.getenv('CLAUDE_API_KEY')
-        if not api_key:
-            raise ValueError("CLAUDE_API_KEY environment variable not found")
-        self.client = Anthropic(api_key=api_key)
-    
-    def batch_check_metrics(self, sentence: str, target_metrics: List[str]) -> List[str]:
-        """Check which metrics from the list match the sentence."""
-        prompt = f"""You are a financial expert. Given a sentence and a list of target financial metrics:
-
-Sentence: {sentence}
-
-Target Metrics:
-{chr(10).join(f"- {metric}" for metric in target_metrics)}
-
-Task: Return a list of metrics that this sentence is reporting.
-Consider:
-- Exact matches (e.g., "total revenue" matches "total revenue")
-- Equivalent terms (e.g., "net income attributable to common stockholders" matches "net income to stockholders")
-- Hierarchical relationships (e.g., "automotive revenue" is a subset of "total revenue")
-
-Output only the matching metrics as a comma-separated list. No other text.
-Example: total revenue, net income
-If no matches, output: none
-"""
-        try:
-            response = self.client.messages.create(
-                model="claude-3-opus-20240229",
-                max_tokens=100,
-                temperature=0,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            text_response = response.content[0].text.strip().lower()
-            if text_response == "none":
-                return []
-                
-            return [m.strip() for m in text_response.split(",")]
-            
-        except Exception as e:
-            logger.error(f"Error calling Claude API: {str(e)}")
-            return []
-    
-    def get_updated_numbers(self, sentence: str, target_metrics: List[str], target_values: List[str]) -> Dict[str, Tuple[str, str]]:
-        """Get updated numbers for multiple metrics in one call."""
-        metrics_info = "\n".join(f"Metric {i+1}: {metric}\nTarget Values: {value}" 
-                               for i, (metric, value) in enumerate(zip(target_metrics, target_values)))
-        
-        prompt = f"""You are a financial expert. Given a sentence and multiple target metrics with their values:
-
-Sentence: {sentence}
-
-{metrics_info}
-
-For each metric that matches the sentence, extract the three month and six month values that should be used to update the sentence.
-Output each result on a new line in the format:
-metric_name: three_month_value,six_month_value
-
-Example:
-total revenue: 24.93,48.26
-net income: 2.61,5.15
-
-Only include metrics that match. Use 'none,none' for metrics that don't match.
-All numbers should be in billions with 2 decimal places.
-"""
-        try:
-            response = self.client.messages.create(
-                model="claude-3-opus-20240229",
-                max_tokens=200,
-                temperature=0,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            results = {}
-            text_response = response.content[0].text.strip()
-            
-            for line in text_response.split("\n"):
-                if ":" not in line:
-                    continue
-                    
-                metric, values = line.split(":", 1)
-                metric = metric.strip().lower()
-                values = values.strip()
-                
-                if values == "none,none":
-                    continue
-                    
-                try:
-                    three_month, six_month = values.split(",")
-                    three_month = float(three_month)
-                    six_month = float(six_month)
-                    results[metric] = (f"{three_month:.2f} billion", f"{six_month:.2f} billion")
-                except (ValueError, IndexError):
-                    logger.error(f"Failed to parse numbers for metric {metric}: {values}")
-                    continue
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error calling Claude API: {str(e)}")
-            return {}
 
 def clean_text(text: str) -> str:
     """Clean text by removing special characters and extra whitespace."""
@@ -187,9 +83,9 @@ def dates_match(sentence_dates: List[Tuple[str, str, str]], target_dates: List[T
 def selection(changed_sentences: Dict[int, List[Tuple[List[str], str]]], sentences: Dict[int, str]) -> Dict[int, List[Tuple[List[str], str]]]:
     """Filter and match sentences with their corresponding metrics using exact matching and number verification."""
     filtered_sentences = {}
-    matcher = SemanticMatcher()
+    llm = get_llm_provider()  # Get configured LLM provider
     
-    print("\n🔍 Starting financial data analysis...")  # Changed to print for cleaner output
+    print("\n🔍 Starting financial data analysis...")
     
     # Create progress bar for sentence processing
     with tqdm(total=len(changed_sentences), desc="Processing sentences", unit="sent", leave=True) as pbar:
@@ -223,18 +119,18 @@ def selection(changed_sentences: Dict[int, List[Tuple[List[str], str]]], sentenc
                 target_metrics = [m[0] for m in metrics]
                 
                 # Get matching metrics in one call
-                matching_metrics = matcher.batch_check_metrics(sentence, target_metrics)
+                matching_metrics = llm.batch_check_metrics(sentence, target_metrics)
                 if matching_metrics:
                     # Get updated numbers for matching metrics in one call
                     matching_values = [m[1] for m in metrics if m[0].lower() in matching_metrics]
-                    number_updates = matcher.get_updated_numbers(sentence, matching_metrics, matching_values)
+                    number_updates = llm.get_updated_numbers(sentence, matching_metrics, matching_values)
                     
                     # Add matches with updated numbers
                     for metric, numbers in number_updates.items():
                         for m in metrics:
                             if m[0].lower() == metric:
                                 matches.append((m[2], 1.0))
-                                tqdm.write(f"✨ Updated {metric}")  # Use tqdm.write instead of print/logger
+                                tqdm.write(f"✨ Updated {metric}")
             
             # Keep all matches
             if matches:
@@ -245,9 +141,9 @@ def selection(changed_sentences: Dict[int, List[Tuple[List[str], str]]], sentenc
     # Final summary
     total_updates = sum(len(matches) for matches in filtered_sentences.values())
     if total_updates > 0:
-        print(f"\n✅ Successfully processed {total_updates} financial updates")  # Changed to print for cleaner output
+        print(f"\n✅ Successfully processed {total_updates} financial updates")
     else:
-        print("\n❌ No matching financial data found")  # Changed to print for cleaner output
+        print("\n❌ No matching financial data found")
     
     return filtered_sentences
 
