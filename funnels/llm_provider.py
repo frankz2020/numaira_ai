@@ -46,7 +46,7 @@ If no matches, output: none
 """
         try:
             response = self.client.messages.create(
-                model="claude-3-opus-20240229",
+                model="claude-3-5-sonnet-20241022",
                 max_tokens=100,
                 temperature=0,
                 messages=[{"role": "user", "content": prompt}]
@@ -84,7 +84,7 @@ All numbers should be in billions with 2 decimal places.
 """
         try:
             response = self.client.messages.create(
-                model="claude-3-opus-20240229",
+                model="claude-3-5-sonnet-20241022",
                 max_tokens=200,
                 temperature=0,
                 messages=[{"role": "user", "content": prompt}]
@@ -130,7 +130,7 @@ class QwenProvider(LLMProvider):
     
     def _call_qwen(self, prompt: str, max_tokens: int = 100) -> str:
         payload = {
-            "model": "qwen-max",
+            "model": "qwen2.5-72b-instruct",
             "input": {
                 "messages": [
                     {
@@ -156,7 +156,10 @@ class QwenProvider(LLMProvider):
             result = response.json()
             
             if 'output' in result and 'text' in result['output']:
-                return result['output']['text'].strip()
+                text = result['output']['text'].strip()
+                # Clean up the response by removing [] and extra whitespace
+                text = text.replace('[]', '').strip()
+                return text
             raise RuntimeError("Unexpected API response format")
             
         except Exception as e:
