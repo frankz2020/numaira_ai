@@ -2,111 +2,56 @@ import asyncio
 import logging
 from dashscope import Generation
 import re
+from typing import List, Tuple
+from funnels.document_processing import values_are_equal
 
 logger = logging.getLogger(__name__)
 
 api_key = "sk-1fc2f2739d444a1690d390e9cfdd8b0c"
 
-async def format_maps(changed_sentences, sentences):
-    """Format the changed sentences with the new values."""
-    logger.info(f"Formatting {len(changed_sentences)} changed sentences")
-    
-    for key, values in changed_sentences.items():
-        sentence = sentences[key]
-        logger.info(f"Processing sentence: {sentence}")
-        
-        # Group values by category and period
-        value_groups = {}
-        for value in values:
-            # Use the full category name as the key to prevent collisions
-            category = ' '.join(value[0][0].split())  # Normalize whitespace
-            period = value[0][1]
-            if category not in value_groups:
-                value_groups[category] = {'three_month': [], 'six_month': []}
-            
-            if 'Three Months' in period:
-                value_groups[category]['three_month'].append(value[1])
-            elif 'Six Months' in period:
-                value_groups[category]['six_month'].append(value[1])
-        
-        # Find all dollar amounts with billion/million
-        pattern = r'\$\d+\.?\d*\s*(billion|million)'
-        matches = list(re.finditer(pattern, sentence, re.IGNORECASE))
-        
-        if len(matches) >= 2:
-            # Track the best matching category
-            best_match = None
-            best_match_score = 0
-            best_values = None
-            
-            # For each category, find the most relevant values
-            for category, periods in value_groups.items():
-                three_month_values = periods['three_month']
-                six_month_values = periods['six_month']
-                
-                # Sort values to ensure consistent order
-                three_month_values.sort(reverse=True)
-                six_month_values.sort(reverse=True)
-                
-                # Get the first value that's not "nan" for each period
-                three_month_value = next((v for v in three_month_values if isinstance(v, str) and v.lower() != 'nan'), None)
-                six_month_value = next((v for v in six_month_values if isinstance(v, str) and v.lower() != 'nan'), None)
-                
-                if three_month_value and six_month_value:
-                    # Check if this category's values should be used for this sentence
-                    category = category.lower()
-                    sentence = sentence.lower()
-                    
-                    # Find exact matches first
-                    match_score = 0
-                    
-                    # Add spaces to ensure we match whole phrases
-                    sentence_padded = f" {sentence} "
-                    category_padded = f" {category} "
-                    
-                    if category_padded in sentence_padded:
-                        # Found exact phrase match
-                        match_score = 1.0
-                    else:
-                        # No exact match, try partial matching
-                        category_words = category.split()
-                        sentence_words = sentence.split()
-                        
-                        # Find longest matching sequence
-                        max_match = 0
-                        for i in range(len(sentence_words)):
-                            for j in range(len(category_words)):
-                                if i + j < len(sentence_words) and sentence_words[i + j] == category_words[j]:
-                                    max_match += 1
-                                else:
-                                    break
-                        
-                        # Score based on proportion of category words matched
-                        match_score = 0.5 * (max_match / len(category_words))
-                    
-                    # If this is the best match so far, store it
-                    if match_score > best_match_score:
-                        best_match = category
-                        best_match_score = match_score
-                        best_values = (three_month_value, six_month_value)
-            
-            # If we found a good match, update the sentence
-            if best_match and best_match_score > 0:
-                three_month_value, six_month_value = best_values
-                sentence = (
-                    sentence[:matches[0].start()] + 
-                    f"${three_month_value}" +
-                    sentence[matches[0].end():matches[1].start()] +
-                    f"${six_month_value}" +
-                    sentence[matches[1].end():]  # Keep the rest of the sentence
-                )
-                logger.info(f"Updated sentence with {best_match} values: {sentence}")
-                logger.info(f"Used values for {best_match}: 3-month: {three_month_value}, 6-month: {six_month_value}")
-        
-        sentences[key] = sentence
-    
-    return sentences
+def extract_numbers(text: str) -> List[Tuple[str, int, int]]:
+    """Extract numbers and their positions from text."""
+    pattern = r'\$?\d+\.?\d*\s*(?:billion|million|thousand)?'
+    matches = list(re.finditer(pattern, text))
+    return [(m.group(), m.start(), m.end()) for m in matches]
 
+def format_changed_sentence(original: str, changes: List[Tuple[List[str], str]]) -> str:
+    """Format a sentence with changes, only marking actual value changes."""
+    result = original
+    offset = 0
+    
+    # Extract original numbers and their positions
+    original_numbers = extract_numbers(original)
+    
+    # Process each change
+    for change in changes:
+        new_value = change[1]
+        
+        # Find matching number in original text
+        for orig_num, start, end in original_numbers:
+            # Compare the values
+            if not values_are_equal(orig_num, new_value):
+                # Replace the number only if it's different
+                replacement = f'<span class="changed-text"><span class="original">{orig_num}</span><span class="modified">{new_value}</span></span>'
+                result = result[:start + offset] + replacement + result[end + offset:]
+                offset += len(replacement) - (end - start)
+            else:
+                # If values are equal, keep the original number without any markup
+                result = result[:start + offset] + orig_num + result[end + offset:]
+    
+    return result
+
+def format_changes(changed_sentences, original_sentences):
+    """Format all changed sentences."""
+    logger.info("Formatting changed sentences")
+    formatted_sentences = []
+    
+    for key, changes in changed_sentences.items():
+        original = original_sentences[key]
+        formatted = format_changed_sentence(original, changes)
+        formatted_sentences.append(formatted)
+    
+    return formatted_sentences
 
 async def request_llm(old_doc_value, values):
     try:
@@ -172,4 +117,24 @@ def get_exact_words(response):
     except Exception as e:
         logger.error(f"Error in get_exact_words: {str(e)}")
         return None
+    
+async def format_maps(changed_sentences, sentences):
+    """Format and update sentences with changes."""
+    logger.info("Starting to format changes")
+    formatted_sentences = sentences.copy()
+    
+    for key, values in changed_sentences.items():
+        old_doc_value = sentences[key]
+        response = await request_llm(old_doc_value, values)
+        
+        if response:
+            words = get_exact_words(response)
+            if words and words != '[]':
+                formatted_sentences[key] = words
+            else:
+                formatted_sentences[key] = old_doc_value
+        else:
+            formatted_sentences[key] = old_doc_value
+            
+    return formatted_sentences
     

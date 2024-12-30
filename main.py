@@ -201,7 +201,6 @@ def update_document(docx_path, results, output_path):
         raise Exception(f"Failed to update document: {str(e)}")
 
 if __name__ == '__main__':
-    # For command line usage
     import sys
     if len(sys.argv) != 3:
         print("Usage: python main.py <docx_file> <excel_file>")

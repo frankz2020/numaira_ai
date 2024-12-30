@@ -459,7 +459,7 @@
                                     </div>
                                     <div class="sentence-text">
                                         {% for word in result.original.split() %}
-                                            {% if '$' in word or word.replace('.', '').isdigit() %}
+                                            {% if ('$' in word or word.replace('.', '').isdigit()) and word not in result.modified.split() %}
                                                 <span class="diff-highlight">{{ word }}</span>
                                             {% else %}
                                                 {{ word }}
@@ -487,8 +487,8 @@
                                         </div>
                                     </div>
                                     <div class="sentence-text">
-                                        {% for word in result.modified.split() %}
-                                            {% if '$' in word or word.replace('.', '').isdigit() %}
+                                        {% for word in result.modified.replace('[]', '').split() %}
+                                            {% if ('$' in word or word.replace('.', '').isdigit()) and word not in result.original.split() %}
                                                 <span class="diff-new">{{ word }}</span>
                                             {% else %}
                                                 {{ word }}
