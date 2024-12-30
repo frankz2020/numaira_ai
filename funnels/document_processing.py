@@ -3,8 +3,9 @@ from docx import Document
 import re
 import logging
 
-logging.basicConfig(level=logging.INFO)
+# Suppress all logging from this module
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 
 def read_docx(file_path):

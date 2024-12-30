@@ -18,8 +18,9 @@ async def format_maps(changed_sentences, sentences):
         # Group values by category and period
         value_groups = {}
         for value in values:
-            category = value[0][0]  # First element is the category
-            period = value[0][1]  # Second element is the period
+            # Use the full category name as the key to prevent collisions
+            category = ' '.join(value[0][0].split())  # Normalize whitespace
+            period = value[0][1]
             if category not in value_groups:
                 value_groups[category] = {'three_month': [], 'six_month': []}
             
@@ -53,20 +54,35 @@ async def format_maps(changed_sentences, sentences):
                 
                 if three_month_value and six_month_value:
                     # Check if this category's values should be used for this sentence
-                    category_words = category.lower().split()
-                    sentence_lower = sentence.lower()
+                    category = category.lower()
+                    sentence = sentence.lower()
                     
-                    # Calculate match score based on word presence and position
+                    # Find exact matches first
                     match_score = 0
-                    last_pos = -1
-                    for word in category_words:
-                        if word in sentence_lower:
-                            pos = sentence_lower.find(word)
-                            if pos > last_pos:  # Words appear in the same order
-                                match_score += 1
-                                if last_pos != -1 and pos - last_pos < 20:  # Words are close together
-                                    match_score += 0.5
-                            last_pos = pos
+                    
+                    # Add spaces to ensure we match whole phrases
+                    sentence_padded = f" {sentence} "
+                    category_padded = f" {category} "
+                    
+                    if category_padded in sentence_padded:
+                        # Found exact phrase match
+                        match_score = 1.0
+                    else:
+                        # No exact match, try partial matching
+                        category_words = category.split()
+                        sentence_words = sentence.split()
+                        
+                        # Find longest matching sequence
+                        max_match = 0
+                        for i in range(len(sentence_words)):
+                            for j in range(len(category_words)):
+                                if i + j < len(sentence_words) and sentence_words[i + j] == category_words[j]:
+                                    max_match += 1
+                                else:
+                                    break
+                        
+                        # Score based on proportion of category words matched
+                        match_score = 0.5 * (max_match / len(category_words))
                     
                     # If this is the best match so far, store it
                     if match_score > best_match_score:
