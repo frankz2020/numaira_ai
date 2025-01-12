@@ -1,5 +1,5 @@
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from utils.llm import LLMConfig
 
 # Initialize LLM configuration
@@ -8,17 +8,36 @@ llm = LLMConfig('YOUR_API_KEY')
 def format_maps(
     old_excel_value: str,
     old_doc_value: str,
-    new_excel_value: str
-) -> Optional[str]:
+    new_excel_value: str,
+    confidence: float = 0.3  # Default to threshold value
+) -> Tuple[Optional[str], float]:
     """Format text based on pattern matching using LLM.
     
     Args:
         old_excel_value: Original value from Excel
         old_doc_value: Original value from document
         new_excel_value: New value from Excel to be formatted
+        confidence: Confidence score from similarity matching (0.0-1.0)
         
     Returns:
-        Formatted text based on the pattern, or None if formatting fails
+        Tuple containing:
+        - Formatted text based on the pattern, or None if formatting fails
+        - Confidence score from similarity matching (bounded between 0.0-1.0)
+    """
+    # Validate confidence score bounds
+    confidence = max(0.0, min(1.0, confidence))
+    """Format text based on pattern matching using LLM.
+    
+    Args:
+        old_excel_value: Original value from Excel
+        old_doc_value: Original value from document
+        new_excel_value: New value from Excel to be formatted
+        confidence: Confidence score from similarity matching
+        
+    Returns:
+        Tuple containing:
+        - Formatted text based on the pattern, or None if formatting fails
+        - Confidence score from similarity matching
     """
     prompt = (
         f"请根据\n'{old_excel_value}'到'{old_doc_value}'的格式变化逻辑"
@@ -39,7 +58,7 @@ def format_maps(
                 if 'message' in choice and 'content' in choice['message']:
                     exact_words = choice['message']['content']
                     break
-    return exact_words
+    return exact_words, confidence
 
 def parse_nested_list(s):
     # 去掉最外层的方括号

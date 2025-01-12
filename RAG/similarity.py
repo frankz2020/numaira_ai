@@ -9,7 +9,7 @@ def find_changes(
     sentences: Dict[int, str],
     model: SentenceTransformer,
     threshold: float = 0.3
-) -> Tuple[Dict[int, List[Tuple[List[str], str]]], None, None]:
+) -> Tuple[Dict[int, List[Tuple[List[str], str, float]]], None, None]:
     """Find changes between excel values and sentences using semantic similarity.
     
     Args:
@@ -20,8 +20,8 @@ def find_changes(
         
     Returns:
         Tuple containing:
-        - Dictionary mapping sentence indices to list of (target_words, new_value) pairs
-          where target_words is a list containing the original value
+        - Dictionary mapping sentence indices to list of (target_words, new_value, confidence) pairs
+          where target_words is a list containing the original value and confidence is similarity score
         - None (reserved for future metadata)
         - None (reserved for future metadata)
     """
@@ -30,9 +30,11 @@ def find_changes(
         value_embedding = model.encode(value)
         for idx, sentence in sentences.items():
             sentence_embedding = model.encode(sentence)
-            similarity = 1 - cosine(value_embedding, sentence_embedding)
+            # Calculate similarity score (already bounded 0-1 by cosine distance)
+            similarity = float(1 - cosine(value_embedding, sentence_embedding))
             if similarity >= threshold:
-                relevant_clips.append((idx, [([value], sentence)]))
+                # Store similarity score as confidence
+                relevant_clips.append((idx, [([value], sentence, similarity)]))
     return dict(relevant_clips), None, None
 
 def identify_exact_words(relevant_clips, revenue_number, api_key):

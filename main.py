@@ -60,6 +60,7 @@ def process_files(docx_path, excel_path):
             for v in values:  # Show all changes
                 print(f"  Target: {v[0]}")
                 print(f"  New value: {v[1]}")
+                print(f"  Confidence: {v[2]:.2%}")
                 print()
         
         # Store original sentences before modification
@@ -74,18 +75,30 @@ def process_files(docx_path, excel_path):
         
         # Format maps
         print("\nApplying changes...")
-        modified_sentences = asyncio.run(format_maps(changed_sentences, sentences.copy()))
+        # Format maps with confidence scores
+        modified_sentences = {}
+        for key, values in changed_sentences.items():
+            for value in values:
+                formatted_text, confidence = asyncio.run(format_maps(
+                    value[0][0],  # old_excel_value
+                    sentences[key],  # old_doc_value
+                    value[1],  # new_excel_value
+                    value[2]  # confidence
+                ))
+                if formatted_text:
+                    modified_sentences[key] = (formatted_text, confidence)
         
-        # Return results
+        # Return results with confidence scores
         results = []
         for key in changed_sentences:
             original = original_sentences[key]
-            modified = modified_sentences[key]
+            modified, confidence = modified_sentences[key]
             if original != modified:  # Only include if there's an actual change
-                results.append((original, modified))
+                results.append((original, modified, confidence))
                 print(f"\nAdded result:")
                 print(f"Original: {original}")
                 print(f"Modified: {modified}")
+                print(f"Confidence: {confidence:.2%}")
         
         print(f"\nFinal results count: {len(results)}")
         

@@ -104,7 +104,8 @@ def upload_file():
                         if isinstance(result, tuple) and len(result) == 2:
                             formatted_results.append({
                                 'original': result[0],
-                                'modified': result[1]
+                                'modified': result[1],
+                                'confidence': result[2]
                             })
                         else:
                             formatted_results.append({
@@ -162,4 +163,4 @@ def download_docx():
         return redirect(url_for('upload_file'))
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080, debug=True)      
+    app.run(host='0.0.0.0', port=8080, debug=True)         

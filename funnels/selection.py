@@ -62,19 +62,19 @@ from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 
 def selection(
-    changed_sentences: Dict[int, List[Tuple[List[str], str]]],
+    changed_sentences: Dict[int, List[Tuple[List[str], str, float]]],
     sentences: Dict[int, str]
-) -> Dict[int, List[Tuple[List[str], str]]]:
+) -> Dict[int, List[Tuple[List[str], str, float]]]:
     """Filter and match sentences with their corresponding metrics using exact matching and number verification.
     
     Args:
         changed_sentences: Dictionary mapping sentence indices to lists of potential changes
-                         Each change is a tuple of (target_words, new_value)
+                         Each change is a tuple of (target_words, new_value, confidence)
         sentences: Dictionary mapping indices to original sentences
         
     Returns:
         Dictionary mapping sentence indices to confirmed changes
-        Each confirmed change is a tuple of (target_words, new_value)
+        Each confirmed change is a tuple of (target_words, new_value, confidence)
     """
     filtered_sentences = {}
     llm = get_llm_provider()  # Get configured LLM provider
@@ -123,7 +123,8 @@ def selection(
                     for metric, numbers in number_updates.items():
                         for m in metrics:
                             if m[0].lower() == metric:
-                                matches.append((m[2], 1.0))
+                                # Preserve original confidence score from similarity matching
+                                matches.append((m[2], m[2][2]))
                                 tqdm.write(f"✨ Updated {metric}")
             
             # Keep all matches
