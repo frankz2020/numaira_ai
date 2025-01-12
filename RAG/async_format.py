@@ -22,30 +22,66 @@ def extract_numbers(text: str) -> List[Tuple[str, int, int]]:
     matches = list(re.finditer(pattern, text))
     return [(m.group(), m.start(), m.end()) for m in matches]
 
-def format_changed_sentence(original: str, changes: List[Tuple[List[str], str]]) -> str:
-    """Format a sentence with changes, only marking actual value changes."""
+def format_changed_sentence(original: str, new_values: List[str]) -> str:
+    """Format a sentence with changes, preserving exact formatting.
+    
+    Args:
+        original: Original sentence text
+        new_values: List of new values to insert
+        
+    Returns:
+        Updated sentence with new values inserted
+    """
+    print(f"\nFormatting sentence:")
+    print(f"Original: {original}")
+    print(f"New values: {new_values}")
+    
+    # Extract all numbers with their formatting
+    pattern = r'\$(\d+\.\d+)\s*billion'
+    matches = list(re.finditer(pattern, original))
+    
+    if not matches:
+        print("No numbers found in original text")
+        return original
+        
+    # Handle both single and paired number updates
+    if len(matches) == 2 and len(new_values) == 1:
+        # Split the new value if it contains two numbers
+        parts = new_values[0].split(' and ')
+        if len(parts) == 2:
+            new_values = [p.strip('$').strip(' billion') for p in parts]
+    
+    if len(matches) != len(new_values):
+        print(f"Mismatch in number count: found {len(matches)}, have {len(new_values)} new values")
+        return original
+        
+    # Replace numbers while preserving formatting
     result = original
     offset = 0
+    for i, match in enumerate(matches):
+        if i < len(new_values):
+            # Get the new value and ensure it's formatted correctly
+            new_val = new_values[i]
+            if isinstance(new_val, (int, float)):
+                new_val = f"{float(new_val):.2f}"
+            elif isinstance(new_val, str):
+                # Clean and convert string to float
+                clean_val = new_val.replace('$', '').replace(',', '').replace('billion', '').strip()
+                try:
+                    new_val = f"{float(clean_val):.2f}"
+                except ValueError:
+                    print(f"Invalid number format: {new_val}")
+                    continue
+            
+            print(f"Replacing {match.group(1)} with {new_val}")
+            
+            # Replace while preserving $ and billion
+            start = match.start(1) + offset
+            end = match.end(1) + offset
+            result = result[:start] + new_val + result[end:]
+            offset += len(new_val) - (match.end(1) - match.start(1))
     
-    # Extract original numbers and their positions
-    original_numbers = extract_numbers(original)
-    
-    # Process each change
-    for change in changes:
-        new_value = change[1]
-        
-        # Find matching number in original text
-        for orig_num, start, end in original_numbers:
-            # Compare the values
-            if not values_are_equal(orig_num, new_value):
-                # Replace the number only if it's different
-                replacement = f'<span class="changed-text"><span class="original">{orig_num}</span><span class="modified">{new_value}</span></span>'
-                result = result[:start + offset] + replacement + result[end + offset:]
-                offset += len(replacement) - (end - start)
-            else:
-                # If values are equal, keep the original number without any markup
-                result = result[:start + offset] + orig_num + result[end + offset:]
-    
+    print(f"Result: {result}")
     return result
 
 def format_changes(changed_sentences, original_sentences):
@@ -152,14 +188,23 @@ async def format_maps(old_excel_value: str, old_doc_value: str, new_excel_value:
     confidence = max(0.0, min(1.0, confidence))
     
     try:
-        # Create values list with single tuple for request_llm
-        values = [(old_excel_value, new_excel_value)]
-        response = await request_llm(old_doc_value, values)
+        # Extract numbers from Excel values
+        pattern = r'(\d+\.?\d+)\s*billion'
+        old_numbers = re.findall(pattern, old_excel_value)
+        new_numbers = re.findall(pattern, new_excel_value)
         
-        if response:
-            words = get_exact_words(response)
-            if words and words != '[]':
-                return words, confidence
+        print(f"\nExtracting numbers:")
+        print(f"From old Excel value: {old_excel_value} -> {old_numbers}")
+        print(f"From new Excel value: {new_excel_value} -> {new_numbers}")
+        
+        if not old_numbers or not new_numbers:
+            print("No valid numbers found in Excel values")
+            return None, confidence
+            
+        # Format the sentence with new numbers
+        formatted = format_changed_sentence(old_doc_value, new_numbers)
+        if formatted and formatted != old_doc_value:
+            return formatted, confidence
         
         return None, confidence
         

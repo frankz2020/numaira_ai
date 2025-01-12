@@ -6,7 +6,7 @@ class LLMConfig:
     """Configuration for LLM interactions."""
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.model = "qwen-max"
+        self.model = "qwen2.5-72b-instruct"  # Using specified model version
     
     def call(
         self,

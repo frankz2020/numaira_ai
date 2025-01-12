@@ -143,7 +143,7 @@ class QwenProvider(LLMProvider):
         logger = logging.getLogger(__name__)
         
         payload = {
-            "model": "qwen2.5-72b-instruct",
+            "model": "qwen2.5-72b-instruct",  # Using specified model version
             "input": {
                 "messages": [
                     {
@@ -309,4 +309,4 @@ def get_llm_provider(provider_name: str | None = None) -> LLMProvider:
     elif provider_name == 'qwen':
         return QwenProvider()
     else:
-        raise ValueError(f"Unsupported LLM provider: {provider_name}")         
+        raise ValueError(f"Unsupported LLM provider: {provider_name}")               
