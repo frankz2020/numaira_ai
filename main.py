@@ -1,21 +1,26 @@
 import os
+import logging
+import asyncio
+from typing import Dict, List, Tuple
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
-import asyncio
-import logging
 from sentence_transformers import SentenceTransformer
-from RAG import format_maps, find_changes
-from funnels import read_docx, excel_to_list, selection
+from RAG.format_mapping import format_maps
+from RAG.similarity import find_changes
+from funnels.extract import read_docx
+from funnels.excel_utils import excel_to_list
+from funnels.selection import selection
 from docx import Document
 from docx.shared import Pt, RGBColor
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from tqdm import tqdm
+from utils.logging import setup_logging
 
-# Set up logging - only show warnings and errors
-logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger(__name__)
+# Set up logging
+logger = setup_logging(level=logging.WARNING)
 
 # Configure progress bar
 tqdm.pandas(desc="Processing", ncols=100, position=0, leave=True)

@@ -11,32 +11,10 @@ from funnels.llm_provider import get_llm_provider
 # Load environment variables
 load_dotenv()
 
-# Configure logging - suppress all loggers except errors
-logging.getLogger().setLevel(logging.WARNING)  # Root logger
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
-logging.getLogger("funnels").setLevel(logging.WARNING)
-logging.getLogger("RAG").setLevel(logging.WARNING)
+from utils.logging import setup_logging
 
-# Only show our specific formatted output
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Create a custom formatter that only shows the message
-class MinimalFormatter(logging.Formatter):
-    def format(self, record):
-        if record.levelno == logging.INFO:
-            return record.getMessage()
-        return f"{record.levelname}: {record.getMessage()}"
-
-# Create console handler with minimal output
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setFormatter(MinimalFormatter())
-logger.addHandler(console_handler)
-
-# Disable tqdm.write() output when not in progress bar context
-tqdm.write = lambda x, file=None: None
+# Set up logging
+logger = setup_logging(level=logging.INFO)
 
 def clean_text(text: str) -> str:
     """Clean text by removing special characters and extra whitespace."""
@@ -80,8 +58,24 @@ def dates_match(sentence_dates: List[Tuple[str, str, str]], target_dates: List[T
     # Check if any dates match
     return bool(sentence_set & target_set)
 
-def selection(changed_sentences: Dict[int, List[Tuple[List[str], str]]], sentences: Dict[int, str]) -> Dict[int, List[Tuple[List[str], str]]]:
-    """Filter and match sentences with their corresponding metrics using exact matching and number verification."""
+from typing import Dict, List, Tuple, Optional
+from datetime import datetime
+
+def selection(
+    changed_sentences: Dict[int, List[Tuple[List[str], str]]],
+    sentences: Dict[int, str]
+) -> Dict[int, List[Tuple[List[str], str]]]:
+    """Filter and match sentences with their corresponding metrics using exact matching and number verification.
+    
+    Args:
+        changed_sentences: Dictionary mapping sentence indices to lists of potential changes
+                         Each change is a tuple of (target_words, new_value)
+        sentences: Dictionary mapping indices to original sentences
+        
+    Returns:
+        Dictionary mapping sentence indices to confirmed changes
+        Each confirmed change is a tuple of (target_words, new_value)
+    """
     filtered_sentences = {}
     llm = get_llm_provider()  # Get configured LLM provider
     

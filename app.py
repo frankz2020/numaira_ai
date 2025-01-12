@@ -1,17 +1,17 @@
-from flask import Flask, request, render_template, flash, send_file, session, redirect, url_for
 import os
+import logging
+import tempfile
+from flask import Flask, request, render_template, flash, send_file, session, redirect, url_for
 from werkzeug.utils import secure_filename
 from main import process_files, update_document
-import tempfile
-import logging
+from utils.logging import setup_logging
 
 app = Flask(__name__)
 # Use a fixed secret key for development
 app.secret_key = 'your-fixed-secret-key-here'  # Change this in production
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = setup_logging(level=logging.INFO)
 
 # Configure upload folder
 UPLOAD_FOLDER = 'uploads'
@@ -162,4 +162,4 @@ def download_docx():
         return redirect(url_for('upload_file'))
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080, debug=True) 
+    app.run(host='0.0.0.0', port=8080, debug=True)      

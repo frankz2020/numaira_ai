@@ -1,79 +1,67 @@
-import re
-import time
-import logging
-from sklearn.metrics.pairwise import cosine_similarity
-from funnels.document_processing import embed_text
-from tqdm import tqdm
+from typing import Dict, List, Tuple, Any, Optional
+import numpy as np
+from scipy.spatial.distance import cosine
+from sentence_transformers import SentenceTransformer
+from dashscope import Generation
 
-logger = logging.getLogger(__name__)
-
-def find_relevant_sentences(sentences, target_text, model, threshold):
-    target_embedding = embed_text(target_text, model)
-    sentence_embeddings = [embed_text(sentence, model) for sentence in sentences]
-    similarities = cosine_similarity([target_embedding], sentence_embeddings)[0]
-    relevant_sentences = []
-    for sentence, similarity in zip(sentences, similarities):
-        if similarity >= threshold:
-            relevant_sentences.append((sentence, similarity))
-    # Sort relevant sentences by similarity in descending order
-    return sorted(relevant_sentences, key=lambda x: x[1], reverse=True)
-
-
-def check_values(old_doc_value, target):
-    # Function to preprocess text by removing spaces, commas, and converting to lowercase
-    def preprocess(text):
-        return text.replace(" ", "").lower()
-
-    old_doc_processed = preprocess(old_doc_value)
-
-    # Split the target into substrings and preprocess each one
-    substrings = [preprocess(s) for s in re.split(r'[,\s]+', target) if s]
-    if all(substring in old_doc_processed for substring in substrings):
-        return False
-    else:
-        return True
-
-
-def find_changes(excel_value, sentences, model, threshold=0.3):
-    """Find changes in sentences based on Excel values."""
-    changed_sentences = {}
-    total_find_sentences_time = 0
-    total_input_change_time = 0
-
-    # Create embeddings for all sentences at once
-    sentence_list = list(sentences.values()) if isinstance(sentences, dict) else sentences
-    sentence_embeddings = model.encode(sentence_list, show_progress_bar=False)
+def find_changes(
+    excel_value: List[str],
+    sentences: Dict[int, str],
+    model: SentenceTransformer,
+    threshold: float = 0.3
+) -> Tuple[Dict[int, List[Tuple[List[str], str]]], None, None]:
+    """Find changes between excel values and sentences using semantic similarity.
     
-    # Group Excel values by their categories
-    value_groups = {}
+    Args:
+        excel_value: List of values from Excel file
+        sentences: Dictionary mapping indices to sentences from Word document
+        model: SentenceTransformer model for encoding text
+        threshold: Minimum similarity threshold for matching
+        
+    Returns:
+        Tuple containing:
+        - Dictionary mapping sentence indices to list of (target_words, new_value) pairs
+          where target_words is a list containing the original value
+        - None (reserved for future metadata)
+        - None (reserved for future metadata)
+    """
+    relevant_clips = []
     for value in excel_value:
-        if isinstance(value[0], list):
-            category = value[0][0]  # First element is the category
-            if category not in value_groups:
-                value_groups[category] = []
-            value_groups[category].append(value)
-    
-    # Process each category of values
-    with tqdm(value_groups.items(), desc="Processing Excel values", ncols=100, position=0) as pbar:
-        for category, values in pbar:
-            # Create target text that includes the category
-            target = f"{category} for the three and six months ended June 30, 2023"
-            
-            # Create embedding for target
-            target_embedding = model.encode([target], show_progress_bar=False)[0]
-            
-            # Calculate similarities with all sentences at once
-            similarities = cosine_similarity([target_embedding], sentence_embeddings)[0]
-            
-            # Find matches above threshold
-            matches = [(i, sim) for i, sim in enumerate(similarities) if sim > threshold]
-            
-            if matches:
-                max_sim_idx, max_sim = max(matches, key=lambda x: x[1])
-                # Add all values for this category to the sentence
-                if max_sim_idx in changed_sentences:
-                    changed_sentences[max_sim_idx].extend(values)
-                else:
-                    changed_sentences[max_sim_idx] = values
-    
-    return changed_sentences, total_find_sentences_time, total_input_change_time
+        value_embedding = model.encode(value)
+        for idx, sentence in sentences.items():
+            sentence_embedding = model.encode(sentence)
+            similarity = 1 - cosine(value_embedding, sentence_embedding)
+            if similarity >= threshold:
+                relevant_clips.append((idx, [([value], sentence)]))
+    return dict(relevant_clips), None, None
+
+def identify_exact_words(relevant_clips, revenue_number, api_key):
+    clips_text = "\n".join([clip for clip, _ in relevant_clips])
+    prompt = (
+        f"给定以下文字片段：\n{clips_text}\n\n"
+        f"请找出其中与这个数字 {revenue_number} 在意义上相等的文字片段，并从这些文字片段中提取出相关的数字，不论它们是用整数还是百万的形式表示。如果没有意义相等的文字片段，请忽略它们。"
+        f"只需回答相关的数字，并使用嵌套列表格式，如 [[123456], [123百万]]。不要包含多余的推理信息。"
+    )
+
+    messages = [
+        {'role': 'system', 'content': '只回答相关的数字，用嵌套列表装起来，不要包含多余信息'},
+        {'role': 'user', 'content': prompt}
+    ]
+
+
+    response = Generation.call(
+        model="qwen-max",
+        messages=messages,
+        result_format='message',
+        api_key=api_key
+    )
+
+    exact_words = None
+    if isinstance(response, dict) and 'output' in response:
+        output = response['output']
+        if 'choices' in output:
+            for choice in output['choices']:
+                if 'message' in choice and 'content' in choice['message']:
+                    exact_words = choice['message']['content']
+                    break
+    return exact_words
