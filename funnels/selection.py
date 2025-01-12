@@ -123,13 +123,13 @@ def selection(
                     for metric, numbers in number_updates.items():
                         for m in metrics:
                             if m[0].lower() == metric:
-                                # Preserve original confidence score from similarity matching
-                                matches.append((m[2], m[2][2]))
-                                tqdm.write(f"✨ Updated {metric}")
+                                # Preserve full tuple structure with confidence
+                                matches.append(m[2])  # m[2] is already (target_words, new_value, confidence)
+                                tqdm.write(f"✨ Updated {metric} (confidence: {m[2][2]:.1%})")
             
-            # Keep all matches
+            # Keep all matches with full tuple structure
             if matches:
-                filtered_sentences[key] = [m[0] for m in matches]
+                filtered_sentences[key] = matches  # Each match is already (target_words, new_value, confidence)
             
             pbar.update(1)
     
