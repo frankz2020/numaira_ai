@@ -20,20 +20,39 @@ def generate_period():
     """Generate a random period (3 or 6 months)."""
     return random.choice(["three", "six"])
 
-def generate_financial_sentence():
-    """Generate a realistic financial sentence."""
-    templates = [
-        "For the {period} months ended {date}, revenue was ${amount} million.",
-        "Net income for the {period}-month period ended {date} was ${amount} million.",
-        "Operating income for the {period} months ended {date} increased to ${amount} million.",
-        "For the {period}-month period ended {date}, EBITDA was ${amount} million.",
-    ]
-    template = random.choice(templates)
+def generate_financial_sentence(metric=None, period=None, amount=None):
+    """Generate a realistic financial sentence.
+    
+    Args:
+        metric: Specific metric to use (Revenue, Net Income, etc.)
+        period: Specific period to use (three/six months)
+        amount: Specific amount to use (if None, generates random amount)
+    """
+    templates = {
+        'Revenue': "For the {period} months ended {date}, revenue was ${amount:.2f} million",
+        'Net Income': "Net income for the {period}-month period ended {date} was ${amount:.2f} million",
+        'Operating Income': "Operating income for the {period} months ended {date} increased to ${amount:.2f} million",
+        'EBITDA': "For the {period}-month period ended {date}, EBITDA was ${amount:.2f} million"
+    }
+    
+    # Use provided metric or choose randomly
+    if not metric:
+        metric = random.choice(list(templates.keys()))
+    template = templates[metric]
+    
+    # Use provided period or choose randomly
+    if not period:
+        period = generate_period()
+        
+    # Use provided amount or generate random
+    if amount is None:
+        amount = generate_random_amount()
+        
     return template.format(
-        period=generate_period(),
+        period=period,
         date=generate_date(),
-        amount=generate_random_amount()
-    )
+        amount=amount
+    ), metric, amount
 
 def extract_amounts(text):
     """Extract dollar amounts from text."""
@@ -41,55 +60,116 @@ def extract_amounts(text):
     amounts = re.findall(r'\$(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:million|billion)?', text)
     return [int(amount.replace(',', '')) for amount in amounts]
 
-def generate_docx(path="test.docx", num_sentences=10):
+def generate_docx(path="test.docx"):
     """Generate a test Word document with financial statements."""
     doc = Document()
-    sentences = []
+    data = []  # Store (sentence, metric, period, amount) tuples
     
     # Add title
     doc.add_heading('Financial Report', 0)
     doc.add_paragraph()
     
-    # Generate sentences and store them
-    for _ in range(num_sentences):
-        sentence = generate_financial_sentence()
-        sentences.append(sentence)
-        doc.add_paragraph(sentence)
+    # Generate one sentence for each metric and period combination
+    metrics = ['Revenue', 'Net Income', 'Operating Income', 'EBITDA']
+    periods = ['three', 'six']
+    
+    for metric in metrics:
+        for period in periods:
+            amount = generate_random_amount()
+            sentence, _, _ = generate_financial_sentence(metric=metric, period=period, amount=amount)
+            data.append((sentence, metric, period, amount))
+            doc.add_paragraph(sentence)
     
     # Save document
     os.makedirs(os.path.dirname(path), exist_ok=True)
     doc.save(path)
-    return sentences
+    return data
 
-def generate_xlsx(path="test.xlsx", sentences=None, variation_factor=0.1):
+def generate_xlsx(path="test.xlsx", data=None, variation_factor=0.1):
     """Generate a test Excel file with financial data.
     
     Args:
         path: Path to save Excel file
-        sentences: List of sentences to extract amounts from
+        data: List of (sentence, metric, period, amount) tuples
         variation_factor: How much to vary the amounts (0.1 = 10% variation)
     """
-    if not sentences:
+    if not data:
         return
+        
+    # Create DataFrame with proper structure
+    records = []
+    for sentence, metric, period, amount in data:
+        # Convert period to standard format
+        period_str = "3 Months" if period == "three" else "6 Months"
+        
+        # Add variation to create "new" numbers
+        varied_amount = amount * (1 + random.uniform(-variation_factor, variation_factor))
+        
+        records.append({
+            'Metric': metric,
+            'Period': period_str,
+            'Original Value': f"{amount:.2f}",  # Keep 2 decimal places
+            'Updated Value': f"{varied_amount:.2f}"  # Keep 2 decimal places
+        })
     
-    # Extract amounts and dates from sentences
-    data = []
-    for sentence in sentences:
-        amounts = extract_amounts(sentence)
-        if amounts:
-            # Add some variation to create "new" numbers
-            varied_amount = amounts[0] * (1 + random.uniform(-variation_factor, variation_factor))
-            data.append({
-                'Original Amount': amounts[0],
-                'Updated Amount': round(varied_amount)
-            })
+    # Define metric order
+    metric_order = ['Revenue', 'Operating Income', 'Net Income', 'EBITDA']
     
-    # Create DataFrame and save
-    df = pd.DataFrame(data)
+    # Create DataFrame with proper structure and index
+    columns = []
+    for period in ['3 Months', '6 Months']:
+        columns.extend([f'Original Value ({period})', f'Updated Value ({period})'])
+    
+    # Initialize DataFrame with zeros and proper index
+    result_df = pd.DataFrame(0.0, 
+                           index=pd.Index(metric_order, name='Metric'),
+                           columns=columns)
+    
+    # Fill values with proper decimal formatting
+    for record in records:
+        metric = record['Metric']
+        period = record['Period']
+        orig_val = float(record['Original Value'])
+        updated_val = float(record['Updated Value'])
+        result_df.at[metric, f'Original Value ({period})'] = orig_val
+        result_df.at[metric, f'Updated Value ({period})'] = updated_val
+    
+    # Ensure consistent decimal places
+    result_df = result_df.round(2)
+    
+    # Ensure all values are properly formatted
+    for col in result_df.columns:
+        result_df[col] = pd.to_numeric(result_df[col], errors='coerce').round(2)
+    
+    # Save with proper formatting
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    df.to_excel(path, index=False)
+    with pd.ExcelWriter(path, engine='openpyxl') as writer:
+        # Save with proper index and number formatting
+        # Reset index to make Metric a regular column, then set it as index again
+        # This ensures proper display of metric names
+        temp_df = result_df.reset_index()
+        temp_df['Metric'] = pd.Categorical(temp_df['Metric'], categories=metric_order, ordered=True)
+        temp_df = temp_df.set_index('Metric')
+        
+        # Convert to string format with 2 decimal places
+        for col in temp_df.columns:
+            temp_df[col] = temp_df[col].apply(lambda x: '{:.2f}'.format(x))
+            
+        # Save with proper formatting
+        temp_df.to_excel(
+            writer,
+            index=True,
+            index_label='Metric'
+        )
+        
+        # Access the worksheet to adjust column widths and format
+        worksheet = writer.sheets['Sheet1']
+        worksheet.column_dimensions['A'].width = 20  # Metric column
+        for col in range(1, len(result_df.columns) + 2):
+            col_letter = chr(65 + col)
+            worksheet.column_dimensions[col_letter].width = 15  # Data columns
 
-def generate_test_files(output_dir="test_data", num_files=5, sentences_per_file=10):
+def generate_test_files(output_dir="test_data", num_files=5):
     """Generate multiple test file pairs."""
     os.makedirs(output_dir, exist_ok=True)
     
@@ -97,11 +177,11 @@ def generate_test_files(output_dir="test_data", num_files=5, sentences_per_file=
         docx_path = os.path.join(output_dir, f"test_{i+1}.docx")
         xlsx_path = os.path.join(output_dir, f"test_{i+1}.xlsx")
         
-        # Generate docx and get sentences
-        sentences = generate_docx(docx_path, sentences_per_file)
+        # Generate docx and get data
+        data = generate_docx(docx_path)
         
         # Generate corresponding xlsx with variations
-        generate_xlsx(xlsx_path, sentences)
+        generate_xlsx(xlsx_path, data)
         
         print(f"Generated test pair {i+1}: {docx_path}, {xlsx_path}")
 

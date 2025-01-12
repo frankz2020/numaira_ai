@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import re
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import os
 from dotenv import load_dotenv
 from utils.llm import LLMConfig
@@ -66,17 +66,29 @@ async def request_llm(old_doc_value, values):
         for value in values:
             excel_value_1 = value[0]
             excel_value_2 = value[1]
-            sentence = f"Given the infomation and time of '{excel_value_1}', change this sentence corresponding value '{old_doc_value} ' to '{excel_value_2}', be sensitive to time-related term; and output the modified text, directly without any other information."
-            prompt += sentence + "\n"
+            sentence = (
+                f"Original value: '{excel_value_1}'\n"
+                f"Document text: '{old_doc_value}'\n"
+                f"New value: '{excel_value_2}'\n\n"
+                f"Task: Update the document text with the new value, preserving the exact format and time-related terms. "
+                f"Output only the modified text without any additional information."
+            )
+            prompt += sentence + "\n\n"
 
-        prompt += "Please carefully identify nouns to ensure there is a semantic correspondence in the sentence. Note that the rest of the text content should remain unchanged. If it already corresponds, please return an empty list, [], and don't do anything else. If no corresponding data is found, please return without modification."
+        prompt += (
+            "Important:\n"
+            "- Carefully match financial metrics and their context\n"
+            "- Preserve all formatting and surrounding text\n"
+            "- If values already match or no valid update is possible, return []\n"
+            "- Output only the modified text, no explanations"
+        )
         
         logger.info(f"Sending prompt for value: {excel_value_1}")
 
         messages = [
             {'role': 'system',
-             'content': 'You are a rigorous financial analyst. Only respond with the modified text.'
-                      'Please be sensitive to time-related keywords. If there is no match or no need for modification, please return an empty list []'},
+             'content': 'You are a precise financial text formatter. Output only the modified text, preserving exact formatting and numerical context. '
+                      'Return [] if no valid update is possible or if values already match.'},
             {'role': 'user', 'content': prompt}
         ]
 
@@ -122,23 +134,36 @@ def get_exact_words(response):
         logger.error(f"Error in get_exact_words: {str(e)}")
         return None
     
-async def format_maps(changed_sentences, sentences):
-    """Format and update sentences with changes."""
-    logger.info("Starting to format changes")
-    formatted_sentences = sentences.copy()
+async def format_maps(old_excel_value: str, old_doc_value: str, new_excel_value: str, confidence: float = 0.3) -> Tuple[Optional[str], float]:
+    """Format text based on pattern matching using LLM.
     
-    for key, values in changed_sentences.items():
-        old_doc_value = sentences[key]
+    Args:
+        old_excel_value: Original value from Excel
+        old_doc_value: Original value from document
+        new_excel_value: New value from Excel to be formatted
+        confidence: Confidence score from similarity matching (0.0-1.0)
+        
+    Returns:
+        Tuple containing:
+        - Formatted text based on the pattern, or None if formatting fails
+        - Confidence score from similarity matching (bounded between 0.0-1.0)
+    """
+    # Validate confidence score bounds
+    confidence = max(0.0, min(1.0, confidence))
+    
+    try:
+        # Create values list with single tuple for request_llm
+        values = [(old_excel_value, new_excel_value)]
         response = await request_llm(old_doc_value, values)
         
         if response:
             words = get_exact_words(response)
             if words and words != '[]':
-                formatted_sentences[key] = words
-            else:
-                formatted_sentences[key] = old_doc_value
-        else:
-            formatted_sentences[key] = old_doc_value
-            
-    return formatted_sentences
+                return words, confidence
+        
+        return None, confidence
+        
+    except Exception as e:
+        logger.error(f"Error in format_maps: {str(e)}")
+        return None, confidence
     

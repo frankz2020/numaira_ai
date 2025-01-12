@@ -20,16 +20,65 @@ from tqdm import tqdm
 from utils.logging import setup_logging
 
 # Set up logging
-logger = setup_logging(level=logging.WARNING)
+logger = setup_logging(level=logging.INFO)
 
 # Configure progress bar
 tqdm.pandas(desc="Processing", ncols=100, position=0, leave=True)
 
-def process_files(docx_path, excel_path):
+async def process_files(docx_path, excel_path, timeout: int = 30):
+    """Process Word and Excel files to find and update matching content.
+    
+    Pipeline Steps:
+    1. Load and parse input files
+       - Word document text extraction
+       - Excel data parsing
+    2. Find matching sentences using semantic similarity
+       - Sentence transformer embeddings
+       - Cosine similarity matching
+    3. Filter matches based on exact word presence
+       - Metric name verification
+       - Date/period matching
+    4. Format changes using LLM
+       - Pattern analysis
+       - Text formatting
+    5. Return results with confidence scores
+    
+    Args:
+        docx_path: Path to Word document containing text to update
+        excel_path: Path to Excel file containing new values
+        timeout: Timeout in seconds for LLM calls (default: 30)
+        
+    Returns:
+        List[Tuple[str, str, float]]: List of tuples containing:
+            - original: Original sentence from document
+            - modified: Updated sentence with new values
+            - confidence: Update confidence score (0.0-1.0)
+            
+    Raises:
+        ValueError: If no text found in Word document
+        RuntimeError: If model initialization fails
+        Exception: For file processing or LLM errors
+        
+    Example:
+        >>> results = await process_files("report.docx", "updates.xlsx")
+        >>> for orig, mod, conf in results:
+        ...     print(f"Original: {orig}")
+        ...     print(f"Modified: {mod}")
+        ...     print(f"Confidence: {conf:.2%}")
+    """
     try:
         print("\n=== Debug Information ===")
         
-        model = SentenceTransformer('distiluse-base-multilingual-cased-v2')
+        # Initialize model (synchronous operation)
+        print("\nInitializing sentence transformer model...")
+        try:
+            model = SentenceTransformer('all-MiniLM-L6-v2')
+            print("Model initialized successfully")
+        except Exception as e:
+            raise RuntimeError(f"Error initializing model: {str(e)}")
+            
+        # Load input files
+        print("\nLoading input files...")
         excel_value = excel_to_list(excel_path)
         sentences = read_docx(docx_path)
         
@@ -52,7 +101,13 @@ def process_files(docx_path, excel_path):
         changed_sentences = {}
         threshold = 0.3
         
-        changed_sentences, _, _ = find_changes(excel_value, sentences, model, threshold)
+        changed_sentences, _, _ = await find_changes(
+            excel_value=excel_value,
+            sentences=sentences,
+            model=model,
+            threshold=threshold,
+            timeout=timeout
+        )
         print(f"\nFound changes in sentences:")
         for key, values in changed_sentences.items():
             print(f"\nSentence {key}: {sentences[key]}")
@@ -77,16 +132,40 @@ def process_files(docx_path, excel_path):
         print("\nApplying changes...")
         # Format maps with confidence scores
         modified_sentences = {}
-        for key, values in changed_sentences.items():
+        for sentence_idx, values in changed_sentences.items():
+            if not isinstance(sentence_idx, int):
+                print(f"Warning: Invalid sentence index type: {type(sentence_idx)}")
+                continue
+                
+            if sentence_idx not in sentences:
+                print(f"Warning: Sentence index {sentence_idx} not found")
+                continue
+                
             for value in values:
-                formatted_text, confidence = asyncio.run(format_maps(
-                    value[0][0],  # old_excel_value
-                    sentences[key],  # old_doc_value
-                    value[1],  # new_excel_value
-                    value[2]  # confidence
-                ))
-                if formatted_text:
-                    modified_sentences[key] = (formatted_text, confidence)
+                try:
+                    if not isinstance(value, (list, tuple)) or len(value) != 3:
+                        print(f"Warning: Invalid value format: {value}")
+                        continue
+                        
+                    target_words, new_value, confidence = value
+                    if not isinstance(target_words, list) or not target_words:
+                        print(f"Warning: Invalid target words: {target_words}")
+                        continue
+                        
+                    formatted_text, confidence = await format_maps(
+                        old_excel_value=target_words[0],  # Original Excel value
+                        old_doc_value=sentences[sentence_idx],  # Original document text
+                        new_excel_value=new_value,  # Updated Excel value
+                        confidence=confidence  # Confidence score from similarity matching
+                    )
+                    if formatted_text:
+                        modified_sentences[sentence_idx] = (formatted_text, confidence)
+                        print(f"\nFormatted text for sentence {sentence_idx}:")
+                        print(f"Original: {sentences[sentence_idx]}")
+                        print(f"Modified: {formatted_text}")
+                        print(f"Confidence: {confidence:.2%}")
+                except (IndexError, TypeError, ValueError) as e:
+                    print(f"Warning: Error processing value: {str(e)}")
         
         # Return results with confidence scores
         results = []
@@ -220,14 +299,24 @@ def update_document(docx_path, results, output_path):
         logger.error(f"Error updating document: {str(e)}", exc_info=True)
         raise Exception(f"Failed to update document: {str(e)}")
 
-if __name__ == '__main__':
-    import sys
+async def main():
+    """Main async entry point."""
     if len(sys.argv) != 3:
         print("Usage: python main.py <docx_file> <excel_file>")
         sys.exit(1)
     
     docx_path = sys.argv[1]
     excel_path = sys.argv[2]
-    results = process_files(docx_path, excel_path)
-    for result in results:
-        print(result)
+    
+    try:
+        results = await process_files(docx_path, excel_path)
+        for result in results:
+            print(result)
+    except Exception as e:
+        print(f"Error processing files: {str(e)}")
+        sys.exit(1)
+
+if __name__ == '__main__':
+    import sys
+    import asyncio
+    asyncio.run(main())
