@@ -1,7 +1,6 @@
 """Centralized LLM configuration and utilities."""
 from typing import Dict, Any, Optional
 from dashscope import Generation
-from dashscope.api.generation import Generation as GenerationType
 
 class LLMConfig:
     """Configuration for LLM interactions."""
