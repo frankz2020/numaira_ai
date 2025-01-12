@@ -1,18 +1,124 @@
 # Financial Document Update Pipeline
 
 ## Overview
-This system automatically updates financial documents by matching and replacing numerical values between Excel spreadsheets and Word documents. It uses semantic similarity matching and LLM-based formatting to ensure accurate updates while maintaining document structure.
+This system automatically updates financial documents by matching and replacing numerical values between Excel spreadsheets and Word documents. It uses NER-based metric detection, semantic similarity matching, and LLM-based verification to ensure accurate updates while maintaining document structure.
 
 ## Architecture
 
 ### Pipeline Flow
 ```
-Excel File → Excel Parser → Value Extraction
+Excel File → Excel Parser → Metric Extraction
                                 ↓
-Word Doc  → Document Parser → Sentence Matching → Confidence Scoring → Document Update
+                         Metric Registry
                                 ↓
-                          Web Interface
+Word Doc  → Document Parser → NER Detection → Embedding Filter → LLM Verification → Document Update
+                                                    ↓                    ↓
+                                           Confidence Scoring ←──── Period Validation
+                                                    ↓
+                                              Web Interface
 ```
+
+### Key Components
+
+1. **Metric Detection**
+   - Named Entity Recognition (NER) for financial metrics
+   - Semantic similarity with sentence embeddings
+   - LLM-based verification using Qwen2.5-72B-Instruct
+
+2. **Confidence Scoring**
+   - Base similarity score (0.0-1.0)
+   - Context boosts:
+     * Period/date validation (+20%)
+     * Currency symbols (+10%)
+     * Financial units (+10%)
+   - Ground truth matching (100%)
+
+### API Endpoints
+
+1. **Document Processing**
+```python
+POST /upload
+Content-Type: multipart/form-data
+Files:
+  - docx_file: Word document (.docx)
+  - excel_file: Excel spreadsheet (.xlsx)
+Response:
+{
+    "results": [
+        {
+            "original": str,  # Original sentence
+            "modified": str,  # Modified sentence
+            "confidence": float  # Update confidence (0.0-1.0)
+        }
+    ]
+}
+```
+
+2. **Document Download**
+```python
+GET /download
+Response: Updated .docx file
+Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+```
+
+### Data Structures
+
+1. **Document Changes**
+```python
+{
+    sentence_index: [
+        (
+            [target_words],  # List of words to match
+            new_value,       # Updated value
+            confidence       # Similarity score (0.0-1.0)
+        )
+    ]
+}
+```
+
+2. **Metric Definitions**
+```python
+{
+    "total revenues": {
+        "variations": List[str],  # Alternative forms
+        "threshold": float,       # Minimum confidence
+        "requires_exact": bool    # Whether exact match needed
+    }
+}
+```
+
+3. **Confidence Features**
+```python
+{
+    "similarity": float,      # Base similarity score
+    "period_match": float,    # Period validation score
+    "date_match": float,      # Date validation score
+    "llm_verified": float,    # LLM verification score
+    "exact_match": float      # Exact phrase match score
+}
+```
+
+### Integration Points
+
+1. **Frontend → Backend**
+   - File upload via multipart/form-data
+   - Progress tracking via status messages
+   - Confidence score display with color coding:
+     * High (≥80%): Green
+     * Medium (50-79%): Yellow
+     * Low (<50%): Red
+
+2. **Backend → Frontend**
+   - Real-time processing status updates
+   - Structured results with confidence scores
+   - Error handling and user feedback
+   - Download links for updated documents
+
+3. **Backend → LLM Service**
+   - Asynchronous API calls to Qwen2.5-72B-Instruct
+   - Batch processing for efficiency
+   - Error handling and retries
+   - Timeout management (default: 30s)
 
 ### Components
 

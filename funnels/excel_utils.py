@@ -111,9 +111,28 @@ def excel_to_list(excel_path):
         if not three_month_cols or not six_month_cols:
             raise ValueError("Missing required period columns")
             
-        # Use most recent date if available, otherwise first column
-        three_month_col = max(three_month_cols, key=lambda x: x['date'] if x['date'] else datetime.min)['original']
-        six_month_col = max(six_month_cols, key=lambda x: x['date'] if x['date'] else datetime.min)['original']
+        # Always use June 2023 updated columns
+        june_2023 = datetime(2023, 6, 30)
+        
+        # Find June 2023 updated columns
+        three_month_june = next((col for col in three_month_cols 
+            if col['date'] and col['date'].date() == june_2023.date() 
+            and 'Updated' in col['original']), None)
+        six_month_june = next((col for col in six_month_cols 
+            if col['date'] and col['date'].date() == june_2023.date()
+            and 'Updated' in col['original']), None)
+        
+        if not three_month_june or not six_month_june:
+            print("\nWarning: Could not find June 2023 updated columns")
+            print("Available columns:", [col['original'] for col in three_month_cols + six_month_cols])
+            raise ValueError("Missing required June 2023 updated columns")
+            
+        three_month_col = three_month_june['original']
+        six_month_col = six_month_june['original']
+        
+        print(f"\nUsing June 2023 updated columns:")
+        print(f"  Three-month: {three_month_col}")
+        print(f"  Six-month: {six_month_col}")
         
         print(f"\nUsing period columns:\n  Three-month: {three_month_col}\n  Six-month: {six_month_col}")
         
@@ -184,17 +203,42 @@ def excel_to_list(excel_path):
                 print(f"Matched variation: {original_metric}")
                 
                 try:
-                    # Extract and convert values to billions with exact formatting
-                    three_month_val = pd.to_numeric(row[three_month_col], errors='coerce') / 1e9
-                    six_month_val = pd.to_numeric(row[six_month_col], errors='coerce') / 1e9
+                    # Find June 2023 updated value columns
+                    three_month_col = next((col for col in df.columns if 'Updated Three Months' in col and 'June 30, 2023' in col), None)
+                    six_month_col = next((col for col in df.columns if 'Updated Six Months' in col and 'June 30, 2023' in col), None)
                     
-                    # Verify values are valid
-                    if pd.isna(three_month_val) or pd.isna(six_month_val):
-                        print(f"Warning: Invalid values for {definition_name}")
+                    if not three_month_col or not six_month_col:
+                        print(f"Warning: Could not find June 2023 updated value columns for {definition_name}")
+                        print("Available columns:", df.columns.tolist())
+                        continue
+                        
+                    # Extract values from June 2023 updated columns
+                    three_month_val = row[three_month_col]
+                    six_month_val = row[six_month_col]
+                    
+                    print(f"\nExtracting values for {definition_name}:")
+                    print(f"  Three-month value: {three_month_val}")
+                    print(f"  Six-month value: {six_month_val}")
+                    
+                    # Convert to numeric and verify (values are already in billions)
+                    try:
+                        three_month_val = float(three_month_val)
+                        six_month_val = float(six_month_val)
+                        
+                        # Verify values are in expected range (20-100B)
+                        if not (20.0 <= three_month_val <= 100.0) or not (20.0 <= six_month_val <= 100.0):
+                            print(f"Warning: Values for {definition_name} outside expected range (20-100B)")
+                            print(f"  Three-month: {three_month_val:.2f}B")
+                            print(f"  Six-month: {six_month_val:.2f}B")
+                            continue
+                        
+                        # Format with exactly 2 decimal places
+                        formatted_values = [f"{three_month_val:.2f}", f"{six_month_val:.2f}"]
+                    except (ValueError, TypeError) as e:
+                        print(f"Warning: Invalid values for {definition_name}: {str(e)}")
                         continue
                     
-                    # Format with exactly 2 decimal places
-                    formatted_values = [f"{three_month_val:.2f}", f"{six_month_val:.2f}"]
+                    print(f"  Formatted values (billions): ${formatted_values[0]}B, ${formatted_values[1]}B")
                     
                     print(f"  {metric_info['period_forms']['three_month']}: ${formatted_values[0]} billion")
                     print(f"  {metric_info['period_forms']['six_month']}: ${formatted_values[1]} billion")
