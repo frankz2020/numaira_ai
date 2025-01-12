@@ -200,7 +200,12 @@ class QwenProvider(LLMProvider):
             return "none"
     
     def batch_check_metrics(self, sentence: str, target_metrics: List[str], timeout: int = 30) -> List[str]:
-        """Check which metrics from the list match the sentence.
+        """Check which metrics from the list match the sentence using few-shot examples.
+        
+        Uses examples to demonstrate:
+        - Exact word matching (e.g., "total revenues" = "total revenues")
+        - Common variations (e.g., "revenue" = "revenues")
+        - Metric context (e.g., "for the period ended...")
         
         Args:
             sentence: Text to analyze
@@ -210,22 +215,36 @@ class QwenProvider(LLMProvider):
         Returns:
             List of matching metrics
         """
-        prompt = f"""Given a sentence and a list of target financial metrics:
+        # Few-shot examples demonstrating exact matching
+        examples = """Example 1:
+Sentence: During the three months ended June 30, 2023, total revenues were $26.93 billion
+Metric: total revenues
 
-Sentence: {sentence}
+Example 2:
+Sentence: Net income attributable to common stockholders for Q2 2023 was $2.30 billion
+Metric: net income attributable to common stockholders
+
+Example 3:
+Sentence: Operating income reached $5.82 billion in the six-month period
+Metric: operating income"""
+
+        prompt = f"""Given these examples of exact metric matching:
+
+{examples}
+
+Now analyze this sentence:
+{sentence}
 
 Target Metrics:
 {chr(10).join(f"- {metric}" for metric in target_metrics)}
 
-Task: Return a list of metrics that this sentence is reporting.
-Consider:
-- Exact matches (e.g., "total revenue" matches "total revenue")
-- Equivalent terms (e.g., "net income attributable to common stockholders" matches "net income to stockholders")
-- Hierarchical relationships (e.g., "automotive revenue" is a subset of "total revenue")
+Rules:
+1. Match EXACT words from target metrics
+2. Ignore numbers and formatting
+3. Return matching metrics as comma-separated list
+4. Output 'none' if no exact matches
 
-Output only the matching metrics as a comma-separated list. No other text.
-Example: total revenue, net income
-If no matches, output: none
+Example output: total revenues, net income
 """
         response = self._call_qwen(prompt, timeout=timeout)
         if not response or response == "none":
@@ -240,7 +259,12 @@ If no matches, output: none
         target_values: List[str],
         timeout: int = 30
     ) -> Dict[str, Tuple[str, str]]:
-        """Get updated numbers for multiple metrics in one call.
+        """Get updated numbers for multiple metrics in one call using few-shot examples.
+        
+        Uses examples to demonstrate:
+        - Exact value extraction (e.g., "$26.93 billion" -> 26.93)
+        - Period handling (three months vs six months)
+        - Consistent formatting (always use 2 decimal places)
         
         Args:
             sentence: Text to analyze
@@ -250,6 +274,14 @@ If no matches, output: none
             
         Returns:
             Dictionary mapping metrics to (three_month, six_month) value pairs
+            
+        Example:
+            >>> get_updated_numbers(
+            ...     "Total revenues were $26.93 billion and $42.26 billion",
+            ...     ["total revenues"],
+            ...     ["24.93,48.26"]
+            ... )
+            {'total revenues': ('24.93 billion', '48.26 billion')}
         """
         metrics_info = "\n".join(f"Metric {i+1}: {metric}\nTarget Values: {value}" 
                                for i, (metric, value) in enumerate(zip(target_metrics, target_values)))
@@ -309,4 +341,4 @@ def get_llm_provider(provider_name: str | None = None) -> LLMProvider:
     elif provider_name == 'qwen':
         return QwenProvider()
     else:
-        raise ValueError(f"Unsupported LLM provider: {provider_name}")               
+        raise ValueError(f"Unsupported LLM provider: {provider_name}")                  

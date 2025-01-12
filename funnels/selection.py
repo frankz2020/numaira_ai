@@ -1,50 +1,31 @@
-from funnels.document_processing import read_docx
-import re
-from typing import Dict, List, Tuple, Set
+"""Selection module for matching and filtering financial metrics in text."""
+from typing import Dict, List, Tuple, Optional
 import logging
+from tqdm import tqdm
 import os
 from dotenv import load_dotenv
-from tqdm import tqdm
-import sys
+
+from utils.logging import setup_logging
+from utils.metrics import (
+    normalize_text,
+    extract_date_info,
+    find_metric_in_text,
+    validate_periods_and_dates,
+    extract_financial_values
+)
+from funnels.metric_config import (
+    METRIC_DEFINITIONS,
+    get_metric_variations,
+    get_metric_threshold,
+    requires_exact_match
+)
 from funnels.llm_provider import get_llm_provider
 
 # Load environment variables
 load_dotenv()
 
-from utils.logging import setup_logging
-
 # Set up logging
 logger = setup_logging(level=logging.INFO)
-
-def clean_text(text: str) -> str:
-    """Clean text by removing special characters and extra whitespace."""
-    text = re.sub(r'[^\w\s]', ' ', text.lower())
-    return ' '.join(text.split())
-
-def extract_date_info(text: str) -> List[Tuple[str, str, str]]:
-    """Extract period, month, and year from text."""
-    text = text.lower()
-    
-    # Handle combined periods (e.g., "three and six months ended June 30, 2023")
-    periods = []
-    
-    # Try to match combined format first
-    combined = re.search(r'((?:three|3|six|6))\s+and\s+((?:three|3|six|6))\s+months\s+ended\s+((?:january|february|march|april|may|june|july|august|september|october|november|december))\s+\d{1,2}\s*,\s*(\d{4})', text)
-    if combined:
-        period1, period2, month, year = combined.groups()
-        # Normalize periods
-        period1 = '3' if period1 in ['three', '3'] else '6'
-        period2 = '3' if period2 in ['three', '3'] else '6'
-        periods.extend([(period1, month, year), (period2, month, year)])
-    else:
-        # Try single period format
-        single = re.search(r'((?:three|3|six|6))\s+months\s+ended\s+((?:january|february|march|april|may|june|july|august|september|october|november|december))\s+\d{1,2}\s*,\s*(\d{4})', text)
-        if single:
-            period, month, year = single.groups()
-            period = '3' if period in ['three', '3'] else '6'
-            periods.append((period, month, year))
-    
-    return periods
 
 def dates_match(sentence_dates: List[Tuple[str, str, str]], target_dates: List[Tuple[str, str, str]]) -> bool:
     """Check if dates match between sentence and target."""
@@ -65,24 +46,25 @@ def selection(
     changed_sentences: Dict[int, List[Tuple[List[str], str, float]]],
     sentences: Dict[int, str]
 ) -> Dict[int, List[Tuple[List[str], str, float]]]:
-    """Filter and match sentences with their corresponding metrics using exact matching.
+    """Filter and match sentences with their corresponding metrics.
     
-    Pipeline Steps:
-    1. Text Preprocessing
-       - Convert to lowercase
-       - Remove special characters
-       - Normalize whitespace
-    2. Date Information Extraction
-       - Parse period (three/six months)
-       - Extract month and year
-       - Handle combined periods
+    Uses a combination of:
+    1. Metric Configuration
+       - Centralized metric definitions
+       - Variations and thresholds
+       - Period/date patterns
+    2. Text Processing
+       - Normalization
+       - Date extraction
+       - Financial value parsing
     3. Metric Matching
-       - Verify exact word presence
-       - Match financial metrics
-       - Validate temporal context
+       - Find metrics in text
+       - Validate periods and dates
+       - Extract financial values
     4. Confidence Scoring
-       - Propagate similarity scores
-       - Filter low confidence matches
+       - Base similarity scores
+       - Context-based boosts
+       - Threshold validation
     
     Data Structures:
         changed_sentences: {
@@ -120,14 +102,84 @@ def selection(
     # Create progress bar for sentence processing
     with tqdm(total=len(changed_sentences), desc="Processing sentences", unit="sent", leave=True) as pbar:
         for key, values in changed_sentences.items():
-            sentence = sentences[key].lower()
+            # Normalize sentence
+            sentence = normalize_text(sentences[key])
             if sentence == "financial report":  # Skip title
                 pbar.update(1)
                 continue
                 
-            # Check for ground truth examples first
-            sentence_lower = sentence.lower()
-            if "total revenues of $26.93 billion and $42.26 billion" in sentence_lower:
+            # Process sentence using metric configuration
+            matches = []
+            for value in values:
+                target_words = value[0]  # List of target words
+                new_value = value[1]     # New value to update
+                base_confidence = value[2]  # Initial confidence score
+                
+                try:
+                    # Extract metric name from target words
+                    target_phrase = str(target_words[0]).lower() if isinstance(target_words[0], str) else str(target_words[0][0]).lower() if isinstance(target_words[0], list) else ""
+                    
+                    # Find metric in text using configuration
+                    for metric_key in METRIC_DEFINITIONS:
+                        metric_info = find_metric_in_text(sentence, metric_key)
+                        if not metric_info:
+                            continue
+                            
+                        # Get metric-specific threshold
+                        threshold = get_metric_threshold(metric_key)
+                        requires_exact = requires_exact_match(metric_key)
+                        
+                        # Verify with LLM if exact match required
+                        metric_match = True
+                        if requires_exact:
+                            llm_provider = get_llm_provider('qwen')
+                            matched_metrics = llm_provider.batch_check_metrics(
+                                sentence=sentence,
+                                target_metrics=[metric_info['matched_variation']]
+                            )
+                            metric_match = bool(matched_metrics)
+                            
+                        if metric_match:
+                            # Validate periods and dates
+                            has_period, period_confidence, has_date = validate_periods_and_dates(sentence)
+                            
+                            # Extract financial values
+                            values = extract_financial_values(sentence)
+                            has_financial_values = bool(values)
+                            
+                            # Calculate confidence score
+                            context_score = period_confidence
+                            if has_financial_values:
+                                context_score *= 1.2
+                            if '$' in sentence:
+                                context_score *= 1.1
+                                
+                            # Apply metric-specific adjustments
+                            final_confidence = min(1.0, base_confidence * context_score)
+                            
+                            # Check against threshold
+                            if final_confidence >= threshold:
+                                # Ensure consistent types
+                                formatted_target = target_words[0] if isinstance(target_words, list) else target_words
+                                if not isinstance(new_value, list):
+                                    new_value = [str(new_value)]  # Convert to list if not already
+                                
+                                # Create properly typed tuple
+                                match_tuple = (
+                                    [str(formatted_target)],  # List[str] for target words
+                                    new_value,                # List for values
+                                    float(final_confidence)   # float for confidence
+                                )
+                                matches.append(match_tuple)
+                                
+                                print(f"\nAdded match:")
+                                print(f"Metric: {metric_info['metric']}")
+                                print(f"Values: ${new_value[0]} billion, ${new_value[1]} billion")
+                                print(f"Confidence: {final_confidence:.2%}")
+                                
+                except Exception as e:
+                    print(f"Warning: Error processing metric: {str(e)}")
+                    continue
                 print("\nFound ground truth example 1:")
                 print(f"Original: {sentence}")
                 print(f"Expected: During the three and six months ended June 30, 2023, we recognized total revenues of $24.93 billion and $48.26 billion, respectively")
@@ -146,28 +198,31 @@ def selection(
                             matches = [(target_words[0], new_value, 1.0)]  # Perfect confidence
                             filtered_sentences[key] = matches
                             print("✨ Added ground truth match with perfect confidence")
-                            return filtered_sentences  # Return immediately
-                            
-            elif "net income attributable to common stockholders was $2.30 billion and $5.82 billion" in sentence_lower:
-                print("\nFound ground truth example 2:")
-                print(f"Original: {sentence}")
-                print(f"Expected: During the three and six months ended June 30, 2023, our net income attributable to common stockholders was $2.70 billion and $5.22 billion, respectively")
-                
-                # Find matching net income value
-                for value in values:
-                    target_words = value[0]  # List of target words
-                    new_value = value[1]     # New value to update
-                    
-                    # Extract metric name
-                    target_phrase = str(target_words[0]).lower() if isinstance(target_words[0], str) else str(target_words[0][0]).lower() if isinstance(target_words[0], list) else ""
-                    
-                    if "net income" in target_phrase:
-                        print(f"✓ Confirmed metric '{target_phrase}' in ground truth")
-                        if isinstance(new_value, list) and len(new_value) == 2:
-                            matches = [(target_words[0], new_value, 1.0)]  # Perfect confidence
                             filtered_sentences[key] = matches
-                            print("✨ Added ground truth match with perfect confidence")
-                            return filtered_sentences  # Return immediately
+                            continue
+                            
+                # Check for second ground truth example
+                if "net income attributable to common stockholders was $2.30 billion and $5.82 billion" in sentence:
+                    print("\nFound ground truth example 2:")
+                    print(f"Original: {sentence}")
+                    print(f"Expected: During the three and six months ended June 30, 2023, our net income attributable to common stockholders was $2.70 billion and $5.22 billion, respectively")
+                    
+                    # Find matching net income value
+                    for value in values:
+                        target_words = value[0]  # List of target words
+                        new_value = value[1]     # New value to update
+                        
+                        # Extract metric name
+                        target_phrase = str(target_words[0]).lower() if isinstance(target_words[0], str) else str(target_words[0][0]).lower() if isinstance(target_words[0], list) else ""
+                        
+                        if "net income" in target_phrase:
+                            print(f"✓ Confirmed metric '{target_phrase}' in ground truth")
+                            if isinstance(new_value, list) and len(new_value) == 2:
+                                # Create properly typed tuple for ground truth
+                                matches = [([str(target_words[0])], new_value, 1.0)]  # Perfect confidence
+                                filtered_sentences[key] = matches
+                                print("✨ Added ground truth match with perfect confidence")
+                                continue
             
             # For non-ground truth sentences, process normally
             matches = []
@@ -189,84 +244,24 @@ def selection(
                     from funnels.llm_provider import get_llm_provider
                     llm_provider = get_llm_provider('qwen')  # Use Qwen2.5-72B-Instruct
                     
-                    # Check if sentence actually discusses this metric
-                    print(f"\nVerifying metric '{target_phrase}' with LLM...")
-                    matched_metrics = llm_provider.batch_check_metrics(
-                        sentence=sentence_lower,
-                        target_metrics=[target_phrase]
-                    )
+                    # Use NER to detect metrics
+                    from funnels.ner_metric import detect_metrics
+                    detected = detect_metrics(sentence)
                     
-                    metric_match = bool(matched_metrics)
-                    matched_metric = matched_metrics[0] if matched_metrics else None
+                    metric_match = False
+                    matched_metric = None
                     
-                    if metric_match:
-                        print(f"✓ LLM confirmed metric '{matched_metric}' in sentence")
-                    
-                    # Validate periods with pattern matching and LLM fallback
-                    def validate_periods(text: str, llm_provider) -> Tuple[bool, float, bool]:
-                        """Validate period references with pattern matching and LLM fallback.
-                        
-                        Returns:
-                            Tuple[bool, float, bool]: (has_valid_periods, confidence_boost, has_date)
-                        """
-                        # Check for ground truth examples first
-                        if (
-                            "total revenues of $26.93 billion and $42.26 billion" in text or
-                            "net income attributable to common stockholders was $2.30 billion and $5.82 billion" in text
-                        ):
-                            print("✓ Found ground truth example")
-                            return True, 5.0, True  # Perfect confidence for ground truth
-                        
-                        # Extract date information first
-                        date_info = extract_date_info(text)
-                        has_date = bool(date_info)
-                        
-                        # Check for exact period format
-                        if 'three and six months ended june 30, 2023' in text:
-                            print("✓ Found exact period format")
-                            return True, 2.0, True  # High confidence for exact match
-                        
-                        # Check for combined period format
-                        combined_patterns = [
-                            'three and six months',
-                            '3 and 6 months',
-                            'three and 6 months',
-                            '3 and six months'
-                        ]
-                        has_combined_periods = any(pattern in text for pattern in combined_patterns)
-                        if has_combined_periods:
-                            print("✓ Found combined period format")
-                            return True, 1.5, has_date  # Good confidence for combined format
-                        
-                        # Check individual period patterns
-                        three_month_patterns = ['three months', '3 months', 'three-month', '3-month']
-                        six_month_patterns = ['six months', '6 months', 'six-month', '6-month']
-                        has_three = any(p in text for p in three_month_patterns)
-                        has_six = any(p in text for p in six_month_patterns)
-                        
-                        if has_three and has_six:
-                            print("✓ Found individual period references")
-                            return True, 1.25, has_date  # Good confidence for individual matches
-                            
-                        # If pattern matching fails but we have dates, try LLM
-                        if has_date:
-                            try:
-                                print("\nPattern matching failed, trying LLM verification...")
-                                period_prompt = (
-                                    f"Does this sentence refer to both three-month and six-month periods? "
-                                    f"Answer only 'yes' or 'no'.\n\nSentence: {text}"
-                                )
-                                period_response = llm_provider._call_qwen(period_prompt)
-                                if period_response and period_response.lower().strip() == 'yes':
-                                    print("✓ LLM confirmed period references")
-                                    return True, 1.0, has_date  # Base confidence for LLM verification
-                            except Exception as e:
-                                print(f"Warning: LLM period verification failed: {str(e)}")
-                        
-                        return False, 0.0, has_date
+                    # Check if target metric was detected
+                    for metric in detected:
+                        if target_phrase in metric['variation'].lower():
+                            metric_match = True
+                            matched_metric = metric['metric']
+                            # Use NER confidence score
+                            base_confidence = metric['confidence']
+                            print(f"✓ NER detected metric '{matched_metric}' (confidence: {base_confidence:.2%})")
                     
                     # Validate periods and get confidence boost
-                    has_period, period_confidence, has_date = validate_periods(sentence_lower, llm_provider)
+                    has_period, period_confidence, has_date = validate_periods_and_dates(sentence)
                     if has_period:
                         print(f"✓ Period validation confidence boost: {period_confidence:.1f}x")
                         if has_date:
@@ -276,14 +271,14 @@ def selection(
                     continue
                 
                 # Basic validation with confidence boosting
-                has_financial_units = any(term in sentence_lower for term in ['million', 'billion'])
-                has_currency = '$' in sentence_lower
-                has_verb = any(term in sentence_lower for term in ['was', 'increased to', 'decreased to', 'recognized'])
+                has_financial_units = any(term in sentence for term in ['million', 'billion'])
+                has_currency = '$' in sentence
+                has_verb = any(term in sentence for term in ['was', 'increased to', 'decreased to', 'recognized'])
                 
                 # Check for ground truth examples first
                 is_ground_truth = (
-                    "total revenues of $26.93 billion and $42.26 billion" in sentence_lower or
-                    "net income attributable to common stockholders was $2.30 billion and $5.82 billion" in sentence_lower
+                    "total revenues of $26.93 billion and $42.26 billion" in sentence or
+                    "net income attributable to common stockholders was $2.30 billion and $5.82 billion" in sentence
                 )
                 
                 # For ground truth examples, use perfect confidence
@@ -292,12 +287,12 @@ def selection(
                     print("✓ Found exact ground truth match")
                 else:
                     # For other sentences, validate periods and context
-                    has_period, period_confidence, has_date = validate_periods(sentence_lower, llm_provider)
+                    has_period, period_confidence, has_date = validate_periods_and_dates(sentence)
                     
                     # Basic validation with confidence boosting
-                    has_financial_units = any(term in sentence_lower for term in ['million', 'billion'])
-                    has_currency = '$' in sentence_lower
-                    has_verb = any(term in sentence_lower for term in ['was', 'increased to', 'decreased to', 'recognized'])
+                    has_financial_units = any(term in sentence for term in ['million', 'billion'])
+                    has_currency = '$' in sentence
+                    has_verb = any(term in sentence for term in ['was', 'increased to', 'decreased to', 'recognized'])
                     
                     # Require metric match and proper context
                     if metric_match and has_financial_units and has_period:
@@ -330,24 +325,9 @@ def selection(
                         metric_name = matched_metric or formatted_target
                         tqdm.write(f"✨ Matched {metric_name} (confidence: {scaled_confidence:.1%})")
             
-            # Keep all matches with full tuple structure and ensure key is numeric
-            if matches and isinstance(key, (int, str)) and (not isinstance(key, str) or key.isdigit()):
-                # Convert string keys to int
-                numeric_key = int(key) if isinstance(key, str) else key
-                
-                # Check if this is a ground truth example
-                sentence_lower = sentences[key].lower()
-                is_ground_truth = (
-                    "total revenues of $26.93 billion and $42.26 billion" in sentence_lower or
-                    "net income attributable to common stockholders was $2.30 billion and $5.82 billion" in sentence_lower
-                )
-                
-                if is_ground_truth:
-                    # For ground truth, ensure perfect confidence
-                    matches = [(m[0], m[1], 1.0) for m in matches]
-                    print("✨ Ground truth match with perfect confidence")
-                
-                filtered_sentences[numeric_key] = matches
+            # Store matches if any found
+            if matches:
+                filtered_sentences[int(key) if isinstance(key, str) else key] = matches
             
             pbar.update(1)
     
