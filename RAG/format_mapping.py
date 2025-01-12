@@ -2,8 +2,14 @@
 from typing import Optional, Dict, Any, Tuple
 from utils.llm import LLMConfig
 
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
 # Initialize LLM configuration
-llm = LLMConfig('YOUR_API_KEY')
+llm = LLMConfig(os.getenv("QWEN_API_KEY"))
 
 def format_maps(
     old_excel_value: str,

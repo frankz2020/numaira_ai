@@ -1,13 +1,20 @@
 import asyncio
 import logging
-from dashscope import Generation
 import re
 from typing import List, Tuple
+import os
+from dotenv import load_dotenv
+from utils.llm import LLMConfig
 from funnels.document_processing import values_are_equal
 
+# Load environment variables
+load_dotenv()
+
+# Initialize logging
 logger = logging.getLogger(__name__)
 
-api_key = "sk-1fc2f2739d444a1690d390e9cfdd8b0c"
+# Initialize LLM configuration
+llm = LLMConfig(os.getenv("QWEN_API_KEY"))
 
 def extract_numbers(text: str) -> List[Tuple[str, int, int]]:
     """Extract numbers and their positions from text."""
@@ -73,13 +80,10 @@ async def request_llm(old_doc_value, values):
             {'role': 'user', 'content': prompt}
         ]
 
-        # Async call to Generation.call
+        # Async call to LLM
         response = await asyncio.to_thread(
-            Generation.call,
-            model="qwen2.5-72b-instruct",
-            messages=messages,
-            result_format='message',
-            api_key=api_key
+            llm.call,
+            messages=messages
         )
         
         if response and 'output' in response:

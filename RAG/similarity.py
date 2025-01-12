@@ -2,7 +2,15 @@ from typing import Dict, List, Tuple, Any, Optional
 import numpy as np
 from scipy.spatial.distance import cosine
 from sentence_transformers import SentenceTransformer
-from dashscope import Generation
+import os
+from dotenv import load_dotenv
+from utils.llm import LLMConfig
+
+# Load environment variables
+load_dotenv()
+
+# Initialize LLM configuration
+llm = LLMConfig(os.getenv("QWEN_API_KEY"))
 
 def find_changes(
     excel_value: List[str],
@@ -51,12 +59,7 @@ def identify_exact_words(relevant_clips, revenue_number, api_key):
     ]
 
 
-    response = Generation.call(
-        model="qwen-max",
-        messages=messages,
-        result_format='message',
-        api_key=api_key
-    )
+    response = llm.call(messages)
 
     exact_words = None
     if isinstance(response, dict) and 'output' in response:
