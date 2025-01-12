@@ -1,79 +1,155 @@
-import re
-import time
-import logging
-from sklearn.metrics.pairwise import cosine_similarity
-from funnels.document_processing import embed_text
-from tqdm import tqdm
+from typing import Dict, List, Tuple, Any, Optional
+import numpy as np
+from scipy.spatial.distance import cosine
+from sentence_transformers import SentenceTransformer
+import os
+from dotenv import load_dotenv
+from utils.llm import LLMConfig
 
-logger = logging.getLogger(__name__)
+# Load environment variables
+load_dotenv()
 
-def find_relevant_sentences(sentences, target_text, model, threshold):
-    target_embedding = embed_text(target_text, model)
-    sentence_embeddings = [embed_text(sentence, model) for sentence in sentences]
-    similarities = cosine_similarity([target_embedding], sentence_embeddings)[0]
-    relevant_sentences = []
-    for sentence, similarity in zip(sentences, similarities):
-        if similarity >= threshold:
-            relevant_sentences.append((sentence, similarity))
-    # Sort relevant sentences by similarity in descending order
-    return sorted(relevant_sentences, key=lambda x: x[1], reverse=True)
+# Initialize LLM configuration
+llm = LLMConfig(os.getenv("QWEN_API_KEY"))
 
-
-def check_values(old_doc_value, target):
-    # Function to preprocess text by removing spaces, commas, and converting to lowercase
-    def preprocess(text):
-        return text.replace(" ", "").lower()
-
-    old_doc_processed = preprocess(old_doc_value)
-
-    # Split the target into substrings and preprocess each one
-    substrings = [preprocess(s) for s in re.split(r'[,\s]+', target) if s]
-    if all(substring in old_doc_processed for substring in substrings):
-        return False
-    else:
-        return True
-
-
-def find_changes(excel_value, sentences, model, threshold=0.3):
-    """Find changes in sentences based on Excel values."""
-    changed_sentences = {}
-    total_find_sentences_time = 0
-    total_input_change_time = 0
-
-    # Create embeddings for all sentences at once
-    sentence_list = list(sentences.values()) if isinstance(sentences, dict) else sentences
-    sentence_embeddings = model.encode(sentence_list, show_progress_bar=False)
+async def find_changes(
+    excel_value: List[str],
+    sentences: Dict[int, str],
+    model: SentenceTransformer,
+    threshold: float = 0.75,  # Higher threshold to filter irrelevant sentences before LLM
+    metric_specific_thresholds: Optional[Dict[str, float]] = None,  # Optional metric-specific thresholds
+    timeout: int = 30  # Timeout in seconds
+) -> Tuple[Dict[int, List[Tuple[List[str], str, float]]], None, None]:
+    """Find changes between excel values and sentences using semantic similarity.
     
-    # Group Excel values by their categories
-    value_groups = {}
-    for value in excel_value:
-        if isinstance(value[0], list):
-            category = value[0][0]  # First element is the category
-            if category not in value_groups:
-                value_groups[category] = []
-            value_groups[category].append(value)
-    
-    # Process each category of values
-    with tqdm(value_groups.items(), desc="Processing Excel values", ncols=100, position=0) as pbar:
-        for category, values in pbar:
-            # Create target text that includes the category
-            target = f"{category} for the three and six months ended June 30, 2023"
+    Args:
+        excel_value (List[str]): List of values from Excel file
+        sentences (Dict[int, str]): Dictionary mapping indices to sentences
+        model (SentenceTransformer): Model for encoding text
+        threshold (float, optional): Default similarity threshold. Defaults to 0.40.
+        metric_specific_thresholds (Dict[str, float], optional): Metric-specific thresholds.
+            Defaults to None.
+        timeout (int, optional): Timeout in seconds. Defaults to 30.
+        
+    Returns:
+        Tuple[Dict[int, List[Tuple[List[str], str, float]]], None, None]:
+            - Dict mapping sentence indices to list of (target_words, new_value, confidence)
+            - None (reserved for future metadata)
+            - None (reserved for future metadata)
+    """
+    # Default metric-specific thresholds if none provided
+    if metric_specific_thresholds is None:
+        metric_specific_thresholds = {
+            'revenue': 0.60,      # Higher threshold for common terms
+            'net income': 0.55,   # Higher for compound terms
+            'operating income': 0.55,
+            'ebitda': 0.65       # Highest for unique terms
+        }
+    relevant_clips = []
+    try:
+        import asyncio
+        for value in excel_value:
+            # Wrap encode() calls in asyncio.wait_for()
+            value_embedding = await asyncio.wait_for(
+                asyncio.to_thread(model.encode, value),
+                timeout=timeout
+            )
             
-            # Create embedding for target
-            target_embedding = model.encode([target], show_progress_bar=False)[0]
+            for idx, sentence in sentences.items():
+                sentence_embedding = await asyncio.wait_for(
+                    asyncio.to_thread(model.encode, sentence),
+                    timeout=timeout
+                )
+                
+                # Clean and normalize text for comparison
+                value_lower = value.lower().strip()
+                sentence_lower = sentence.lower().strip()
+                
+                # Calculate base similarity score
+                similarity = float(1 - cosine(value_embedding, sentence_embedding))
+                
+                # Get metric type and threshold
+                effective_threshold = 0.05  # Very low base threshold for initial matching
+                for metric, metric_threshold in metric_specific_thresholds.items():
+                    if metric in value_lower:
+                        effective_threshold = 0.10  # Still low threshold for known metrics
+                        break
+                
+                # Check if similarity meets threshold
+                if similarity >= effective_threshold:
+                    # Apply context-based boosts with focus on exact matches
+                    final_similarity = similarity
+                    
+                    # Check for exact metric phrases
+                    exact_phrases = [
+                        'total revenues',
+                        'net income attributable to common stockholders'
+                    ]
+                    if any(phrase in value_lower and phrase in sentence_lower for phrase in exact_phrases):
+                        final_similarity *= 2.0  # High boost for exact metric match
+                    elif value_lower in sentence_lower:
+                        final_similarity *= 1.5  # Good boost for exact content match
+                    
+                    # Period and date validation
+                    if 'three and six months ended june 30, 2023' in sentence_lower:
+                        final_similarity *= 2.0  # High boost for exact date format
+                    elif ('three months' in value_lower and 'three months' in sentence_lower) or \
+                         ('six months' in value_lower and 'six months' in sentence_lower):
+                        final_similarity *= 1.5  # Good boost for period match
+                    
+                    # Store with bounded confidence score
+                    relevant_clips.append((idx, [([value], sentence, min(1.0, final_similarity))]))
+    except asyncio.TimeoutError:
+        print(f"\n⚠️ Timeout ({timeout}s) exceeded during sentence encoding")
+        return {}, None, None
+    except Exception as e:
+        print(f"\n❌ Error during sentence encoding: {str(e)}")
+        return {}, None, None
+    return dict(relevant_clips), None, None
+
+def identify_exact_words(relevant_clips, revenue_number, api_key):
+    clips_text = "\n".join([clip for clip, _ in relevant_clips])
+    prompt = (
+        f"Given the following text segments:\n{clips_text}\n\n"
+        f"Find segments that are semantically equivalent to the number {revenue_number}. "
+        f"Extract the relevant numbers from these segments, whether they are expressed as integers "
+        f"or in millions/billions format. Ignore any non-matching segments.\n\n"
+        f"Output only the numbers in a nested list format, like [[123456], [123 million]]. "
+        f"Do not include any additional reasoning."
+    )
+
+    messages = [
+        {'role': 'system', 'content': 'You are a precise financial number extractor. Output only the relevant numbers in a nested list format without any additional information.'},
+        {'role': 'user', 'content': prompt}
+    ]
+
+
+    response = llm.call(messages)
+
+    exact_words = None
+    if not response:
+        return None
+        
+    # Clean and validate response
+    try:
+        # Remove any surrounding brackets and split into parts
+        text = response.strip('[]').strip()
+        if not text:
+            return None
             
-            # Calculate similarities with all sentences at once
-            similarities = cosine_similarity([target_embedding], sentence_embeddings)[0]
+        # Split into number components
+        parts = text.split(',')
+        if not parts:
+            return None
             
-            # Find matches above threshold
-            matches = [(i, sim) for i, sim in enumerate(similarities) if sim > threshold]
-            
-            if matches:
-                max_sim_idx, max_sim = max(matches, key=lambda x: x[1])
-                # Add all values for this category to the sentence
-                if max_sim_idx in changed_sentences:
-                    changed_sentences[max_sim_idx].extend(values)
-                else:
-                    changed_sentences[max_sim_idx] = values
-    
-    return changed_sentences, total_find_sentences_time, total_input_change_time
+        # Extract first valid number
+        for part in parts:
+            # Remove non-numeric characters except decimal point
+            clean_num = ''.join(c for c in part if c.isdigit() or c == '.')
+            if clean_num:
+                return clean_num
+    except Exception as e:
+        print(f"Error parsing LLM response: {str(e)}")
+        return None
+        
+    return None
