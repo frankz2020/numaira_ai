@@ -38,7 +38,7 @@ def process_files(docx_path, excel_path):
             print(f"  {val}")
             
         print(f"\nSentences (first 2):")
-        for i, sent in enumerate(sentences[:2]):
+        for i, sent in list(sentences.items())[:2]:
             print(f"  {i}: {sent}")
         
         if not sentences:
@@ -92,19 +92,21 @@ def process_files(docx_path, excel_path):
         results = []
         for key in changed_sentences:
             original = original_sentences[key]
-            modified, confidence = modified_sentences[key]
-            if original != modified:  # Only include if there's an actual change
-                results.append((original, modified, confidence))
-                print(f"\nAdded result:")
-                print(f"Original: {original}")
-                print(f"Modified: {modified}")
-                print(f"Confidence: {confidence:.2%}")
+            if key in modified_sentences:
+                modified, confidence = modified_sentences[key]
+                if original != modified:  # Only include if there's an actual change
+                    results.append((original, modified, confidence))
+                    print(f"\nAdded result:")
+                    print(f"Original: {original}")
+                    print(f"Modified: {modified}")
+                    print(f"Confidence: {confidence:.2%}")
         
         print(f"\nFinal results count: {len(results)}")
         
         if not results:
             results = [("No matching sentences found.", 
-                       "No matching sentences found in the documents. Please process a document first.")]
+                       "No matching sentences found in the documents. Please process a document first.",
+                       0.0)]  # Include confidence score
         
         print("\n=== End Debug Information ===\n")
         return results
