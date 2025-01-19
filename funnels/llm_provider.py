@@ -1,22 +1,60 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional, Any
 import os
 from dotenv import load_dotenv
 from anthropic import Anthropic
 import requests
 import json
+import logging
+from config import Config
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 class LLMProvider(ABC):
+    """Base class for LLM providers."""
+    
     @abstractmethod
-    def batch_check_metrics(self, sentence: str, target_metrics: List[str]) -> List[str]:
-        """Check which metrics from the list match the sentence."""
+    def analyze_text(self, text: str, timeout: Optional[int] = None) -> Dict[str, Any]:
+        """Analyze text using LLM.
+        
+        Args:
+            text: Text to analyze
+            timeout: Optional timeout in seconds
+            
+        Returns:
+            Dict with analysis results
+        """
         pass
         
     @abstractmethod
-    def get_updated_numbers(self, sentence: str, target_metrics: List[str], target_values: List[str]) -> Dict[str, Tuple[str, str]]:
-        """Get updated numbers for multiple metrics in one call."""
+    def compare_text(self, text1: str, text2: str, timeout: Optional[int] = None) -> Dict[str, Any]:
+        """Compare two pieces of text.
+        
+        Args:
+            text1: First text
+            text2: Second text
+            timeout: Optional timeout in seconds
+            
+        Returns:
+            Dict with comparison results including confidence score
+        """
+        pass
+        
+    @abstractmethod
+    def update_text(self, text: str, metric: str, values: Dict[str, float], timeout: Optional[int] = None) -> str:
+        """Update text with new values.
+        
+        Args:
+            text: Original text
+            metric: Metric to update
+            values: New values to insert
+            timeout: Optional timeout in seconds
+            
+        Returns:
+            Updated text
+        """
         pass
 
 class ClaudeProvider(LLMProvider):
@@ -26,62 +64,32 @@ class ClaudeProvider(LLMProvider):
             raise ValueError("CLAUDE_API_KEY environment variable not found")
         self.client = Anthropic(api_key=api_key)
     
-    def batch_check_metrics(self, sentence: str, target_metrics: List[str]) -> List[str]:
-        prompt = f"""You are a financial expert. Given a sentence and a list of target financial metrics:
-
-Sentence: {sentence}
-
-Target Metrics:
-{chr(10).join(f"- {metric}" for metric in target_metrics)}
-
-Task: Return a list of metrics that this sentence is reporting.
-Consider:
-- Exact matches (e.g., "total revenue" matches "total revenue")
-- Equivalent terms (e.g., "net income attributable to common stockholders" matches "net income to stockholders")
-- Hierarchical relationships (e.g., "automotive revenue" is a subset of "total revenue")
-
-Output only the matching metrics as a comma-separated list. No other text.
-Example: total revenue, net income
-If no matches, output: none
-"""
+    def analyze_text(self, text: str, timeout: Optional[int] = None) -> Dict[str, Any]:
+        """Analyze text using Claude."""
         try:
             response = self.client.messages.create(
                 model="claude-3-5-sonnet-20241022",
-                max_tokens=100,
+                max_tokens=200,
                 temperature=0,
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{
+                    "role": "user",
+                    "content": text
+                }]
             )
-            
-            text_response = response.content[0].text.strip().lower()
-            if text_response == "none":
-                return []
-                
-            return [m.strip() for m in text_response.split(",")]
-            
+            return {"analysis": response.content[0].text}
         except Exception as e:
             raise RuntimeError(f"Error calling Claude API: {str(e)}")
-    
-    def get_updated_numbers(self, sentence: str, target_metrics: List[str], target_values: List[str]) -> Dict[str, Tuple[str, str]]:
-        metrics_info = "\n".join(f"Metric {i+1}: {metric}\nTarget Values: {value}" 
-                               for i, (metric, value) in enumerate(zip(target_metrics, target_values)))
-        
-        prompt = f"""You are a financial expert. Given a sentence and multiple target metrics with their values:
+            
+    def compare_text(self, text1: str, text2: str, timeout: Optional[int] = None) -> Dict[str, Any]:
+        """Compare two pieces of text using Claude."""
+        prompt = f"""Compare these two pieces of text semantically:
 
-Sentence: {sentence}
+Text 1: {text1}
+Text 2: {text2}
 
-{metrics_info}
+Are they referring to the same thing? Output format:
+{{"match": true/false, "confidence": 0.0-1.0}}"""
 
-For each metric that matches the sentence, extract the three month and six month values that should be used to update the sentence.
-Output each result on a new line in the format:
-metric_name: three_month_value,six_month_value
-
-Example:
-total revenue: 24.93,48.26
-net income: 2.61,5.15
-
-Only include metrics that match. Use 'none,none' for metrics that don't match.
-All numbers should be in billions with 2 decimal places.
-"""
         try:
             response = self.client.messages.create(
                 model="claude-3-5-sonnet-20241022",
@@ -89,31 +97,28 @@ All numbers should be in billions with 2 decimal places.
                 temperature=0,
                 messages=[{"role": "user", "content": prompt}]
             )
+            return response.content[0].text
+        except Exception as e:
+            raise RuntimeError(f"Error calling Claude API: {str(e)}")
             
-            results = {}
-            text_response = response.content[0].text.strip()
-            
-            for line in text_response.split("\n"):
-                if ":" not in line:
-                    continue
-                    
-                metric, values = line.split(":", 1)
-                metric = metric.strip().lower()
-                values = values.strip()
-                
-                if values == "none,none":
-                    continue
-                    
-                try:
-                    three_month, six_month = values.split(",")
-                    three_month = float(three_month)
-                    six_month = float(six_month)
-                    results[metric] = (f"{three_month:.2f} billion", f"{six_month:.2f} billion")
-                except (ValueError, IndexError):
-                    continue
-            
-            return results
-            
+    def update_text(self, text: str, metric: str, values: Dict[str, float], timeout: Optional[int] = None) -> str:
+        """Update text with new values using Claude."""
+        values_str = ", ".join(f"{k}: {v}" for k, v in values.items())
+        prompt = f"""Update this text by replacing the values for the metric "{metric}" with these new values:
+{values_str}
+
+Text: {text}
+
+Output only the updated text."""
+
+        try:
+            response = self.client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=200,
+                temperature=0,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.content[0].text
         except Exception as e:
             raise RuntimeError(f"Error calling Claude API: {str(e)}")
 
@@ -139,7 +144,6 @@ class QwenProvider(LLMProvider):
         Returns:
             Generated text or "none" on error/timeout
         """
-        import logging
         logger = logging.getLogger(__name__)
         
         payload = {
@@ -199,146 +203,118 @@ class QwenProvider(LLMProvider):
             logger.error(f"Unexpected error calling Qwen API: {str(e)}")
             return "none"
     
-    def batch_check_metrics(self, sentence: str, target_metrics: List[str], timeout: int = 30) -> List[str]:
-        """Check which metrics from the list match the sentence using few-shot examples.
+    def analyze_text(self, text: str, timeout: Optional[int] = None) -> Dict[str, Any]:
+        """Analyze text using Qwen."""
+        response = self._call_qwen(text, max_tokens=200, timeout=timeout)
+        return {"analysis": response} if response else {}
         
-        Uses examples to demonstrate:
-        - Exact word matching (e.g., "total revenues" = "total revenues")
-        - Common variations (e.g., "revenue" = "revenues")
-        - Metric context (e.g., "for the period ended...")
+    def compare_text(self, text1: str, text2: str, timeout: Optional[int] = None) -> Dict[str, Any]:
+        """Compare two pieces of text using Qwen."""
+        prompt = f"""Compare these two pieces of text semantically:
+
+Text 1: {text1}
+Text 2: {text2}
+
+Are they referring to the same thing? Output format:
+{{"match": true/false, "confidence": 0.0-1.0}}"""
+
+        response = self._call_qwen(prompt, max_tokens=200, timeout=timeout)
+        return response if response else {"match": False, "confidence": 0.0}
+        
+    def update_text(self, text: str, metric: str, values: Dict[str, float], timeout: Optional[int] = None) -> str:
+        """Update text with new values using Qwen."""
+        values_str = ", ".join(f"{k}: {v}" for k, v in values.items())
+        prompt = f"""Update this text by replacing the values for the metric "{metric}" with these new values:
+{values_str}
+
+Text: {text}
+
+Output only the updated text."""
+
+        response = self._call_qwen(prompt, max_tokens=200, timeout=timeout)
+        return response if response else text
+
+class LLMProvider:
+    def __init__(self, provider: str = None):
+        config = Config()
+        llm_config = config.get_model_config()["llm"]
+        self.provider = provider or llm_config["provider"]
+        self.model = llm_config["model"]
+        self.default_timeout = llm_config["timeout"]
+        
+        if self.provider == "claude":
+            self._provider = ClaudeProvider()
+        elif self.provider == "qwen":
+            self._provider = QwenProvider()
+        else:
+            raise ValueError(f"Unsupported provider: {self.provider}")
+    
+    def analyze_text(self, text: str, timeout: Optional[int] = None) -> Dict[str, Any]:
+        """Analyze text using the configured provider."""
+        if timeout is None:
+            timeout = self.default_timeout
+        return self._provider.analyze_text(text, timeout)
+    
+    def compare_text(self, text1: str, text2: str, timeout: Optional[int] = None) -> Dict[str, Any]:
+        """Compare two pieces of text using the configured provider."""
+        if timeout is None:
+            timeout = self.default_timeout
+        return self._provider.compare_text(text1, text2, timeout)
+    
+    def update_text(self, text: str, metric: str, values: Dict[str, float], timeout: Optional[int] = None) -> str:
+        """Update text with new values using the configured provider."""
+        if timeout is None:
+            timeout = self.default_timeout
+        return self._provider.update_text(text, metric, values, timeout)
+    
+    def batch_check_metrics(
+        self,
+        sentence: str,
+        target_metrics: List[str],
+        timeout: int = None
+    ) -> List[str]:
+        """Check if target metrics are present in the sentence.
         
         Args:
-            sentence: Text to analyze
-            target_metrics: List of metrics to check
-            timeout: Timeout in seconds (default: 30)
+            sentence: The sentence to check
+            target_metrics: List of metric names to look for
+            timeout: Optional timeout in seconds (defaults to config value)
             
         Returns:
-            List of matching metrics
+            List of metrics found in the sentence
         """
-        # Few-shot examples demonstrating exact matching
-        examples = """Example 1:
-Sentence: During the three months ended June 30, 2023, total revenues were $26.93 billion
-Metric: total revenues
+        if timeout is None:
+            timeout = self.default_timeout
+            
+        prompt = f"""Check which metrics from this list are present in the sentence:
 
-Example 2:
-Sentence: Net income attributable to common stockholders for Q2 2023 was $2.30 billion
-Metric: net income attributable to common stockholders
-
-Example 3:
-Sentence: Operating income reached $5.82 billion in the six-month period
-Metric: operating income"""
-
-        prompt = f"""Given these examples of exact metric matching:
-
-{examples}
-
-Now analyze this sentence:
-{sentence}
+Sentence: {sentence}
 
 Target Metrics:
 {chr(10).join(f"- {metric}" for metric in target_metrics)}
 
-Rules:
-1. Match EXACT words from target metrics
-2. Ignore numbers and formatting
-3. Return matching metrics as comma-separated list
-4. Output 'none' if no exact matches
+Output only the matching metrics as a comma-separated list. If no matches, output: none"""
 
-Example output: total revenues, net income
-"""
-        response = self._call_qwen(prompt, timeout=timeout)
-        if not response or response == "none":
+        try:
+            result = self._provider.analyze_text(prompt, timeout)
+            text_response = result.get("analysis", "none").strip().lower()
+            
+            if text_response == "none":
+                return []
+                
+            return [m.strip() for m in text_response.split(",")]
+            
+        except Exception as e:
+            logger.error(f"Error in batch_check_metrics: {str(e)}")
             return []
-            
-        return [m.strip() for m in response.lower().split(",")]
+
+def get_llm_provider(provider: str = None) -> LLMProvider:
+    """Get an LLM provider instance.
     
-    def get_updated_numbers(
-        self,
-        sentence: str,
-        target_metrics: List[str],
-        target_values: List[str],
-        timeout: int = 30
-    ) -> Dict[str, Tuple[str, str]]:
-        """Get updated numbers for multiple metrics in one call using few-shot examples.
+    Args:
+        provider: Optional provider name (defaults to config value)
         
-        Uses examples to demonstrate:
-        - Exact value extraction (e.g., "$26.93 billion" -> 26.93)
-        - Period handling (three months vs six months)
-        - Consistent formatting (always use 2 decimal places)
-        
-        Args:
-            sentence: Text to analyze
-            target_metrics: List of metrics to check
-            target_values: List of target values
-            timeout: Timeout in seconds (default: 30)
-            
-        Returns:
-            Dictionary mapping metrics to (three_month, six_month) value pairs
-            
-        Example:
-            >>> get_updated_numbers(
-            ...     "Total revenues were $26.93 billion and $42.26 billion",
-            ...     ["total revenues"],
-            ...     ["24.93,48.26"]
-            ... )
-            {'total revenues': ('24.93 billion', '48.26 billion')}
-        """
-        metrics_info = "\n".join(f"Metric {i+1}: {metric}\nTarget Values: {value}" 
-                               for i, (metric, value) in enumerate(zip(target_metrics, target_values)))
-        
-        prompt = f"""Given a sentence and multiple target metrics with their values:
-
-Sentence: {sentence}
-
-{metrics_info}
-
-For each metric that matches the sentence, extract the three month and six month values that should be used to update the sentence.
-Output each result on a new line in the format:
-metric_name: three_month_value,six_month_value
-
-Example:
-total revenue: 24.93,48.26
-net income: 2.61,5.15
-
-Only include metrics that match. Use 'none,none' for metrics that don't match.
-All numbers should be in billions with 2 decimal places.
-"""
-        response = self._call_qwen(prompt, max_tokens=200, timeout=timeout)
-        if not response:
-            return {}
-            
-        results = {}
-        
-        for line in response.split("\n"):
-            if ":" not in line:
-                continue
-                
-            metric, values = line.split(":", 1)
-            metric = metric.strip().lower()
-            values = values.strip()
-            
-            if values == "none,none":
-                continue
-                
-            try:
-                three_month, six_month = values.split(",")
-                three_month = float(three_month)
-                six_month = float(six_month)
-                results[metric] = (f"{three_month:.2f} billion", f"{six_month:.2f} billion")
-            except (ValueError, IndexError):
-                continue
-        
-        return results
-
-def get_llm_provider(provider_name: str | None = None) -> LLMProvider:
-    """Factory function to get the configured LLM provider."""
-    # Get provider from environment if not specified
-    if not provider_name:
-        provider_name = os.getenv('LLM_PROVIDER', 'claude').lower()
-    
-    if provider_name == 'claude':
-        return ClaudeProvider()
-    elif provider_name == 'qwen':
-        return QwenProvider()
-    else:
-        raise ValueError(f"Unsupported LLM provider: {provider_name}")                  
+    Returns:
+        LLMProvider instance
+    """
+    return LLMProvider(provider)                  
