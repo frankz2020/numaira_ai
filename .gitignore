@@ -24,6 +24,11 @@ wheels/
 .installed.cfg
 *.egg
 
+# Virtual Environment
+venv/
+ENV/
+env/
+
 # IDE
 .idea/
 .vscode/
@@ -38,3 +43,12 @@ Thumbs.db
 *.docx
 *.xml
 *.doc
+
+*.pem
+
+# Project specific
+uploads/
+*.docx
+*.xlsx
+*.pem  # SSL certificates
+~$*    # Temporary Excel/Word files

@@ -1,17 +1,52 @@
-from flask import Flask, request, render_template, flash, send_file, session, redirect, url_for
+"""Flask web application for document processing and updates.
+
+This module provides a web interface for:
+1. Uploading Word documents and Excel files
+2. Processing documents to find and update financial metrics
+3. Downloading updated documents with confidence scores
+
+API Endpoints:
+    POST /upload:
+        Upload Word and Excel files for processing
+        Files: docx_file, excel_file (multipart/form-data)
+        Returns: HTML template with processing results
+        
+    GET /download:
+        Download the updated document
+        Returns: Modified .docx file with confidence scores
+        
+Data Structures:
+    Document Info (session):
+        {
+            'original_path': str,  # Path to original document
+            'updated_path': str,   # Path to modified document
+            'filename': str        # Output filename
+        }
+        
+    Results Format:
+        [
+            {
+                'original': str,   # Original sentence
+                'modified': str,   # Updated sentence
+                'confidence': float # Update confidence (0.0-1.0)
+            }
+        ]
+"""
+
 import os
+import logging
+import tempfile
+from flask import Flask, request, render_template, flash, send_file, session, redirect, url_for
 from werkzeug.utils import secure_filename
 from main import process_files, update_document
-import tempfile
-import logging
+from utils.logging import setup_logging
 
 app = Flask(__name__)
 # Use a fixed secret key for development
 app.secret_key = 'your-fixed-secret-key-here'  # Change this in production
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = setup_logging(level=logging.INFO)
 
 # Configure upload folder
 UPLOAD_FOLDER = 'uploads'
@@ -101,10 +136,11 @@ def upload_file():
                 formatted_results = []
                 if isinstance(results, list):
                     for result in results:
-                        if isinstance(result, tuple) and len(result) == 2:
+                        if isinstance(result, tuple) and len(result) == 3:
                             formatted_results.append({
                                 'original': result[0],
-                                'modified': result[1]
+                                'modified': result[1],
+                                'confidence': result[2]
                             })
                         else:
                             formatted_results.append({
@@ -162,4 +198,4 @@ def download_docx():
         return redirect(url_for('upload_file'))
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080, debug=True) 
+    app.run(host='0.0.0.0', port=8080, debug=True)               
