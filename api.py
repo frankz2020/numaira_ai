@@ -5,6 +5,8 @@ import os
 from tempfile import NamedTemporaryFile
 from main import main as process_documents
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List
 
 app = FastAPI(
     title="Document Processing API",
@@ -20,7 +22,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.post("/run-syncspace/")
+# Define response models
+class Change(BaseModel):
+    original_text: str
+    modified_text: str
+    confidence: float
+
+class ProcessingResult(BaseModel):
+    number_of_changes: int
+    results: List[Change]
+    output_file_path: str
+
+class SuccessResponse(BaseModel):
+    status: str = "success"
+    data: ProcessingResult
+
+class ErrorResponse(BaseModel):
+    status: str = "error"
+    message: str
+
+@app.post("/run-syncspace/", 
+    response_model=SuccessResponse,
+    responses={500: {"model": ErrorResponse}}
+)
 async def process_documents_endpoint(
     docx_file: UploadFile = File(...),
     excel_file: UploadFile = File(...)
