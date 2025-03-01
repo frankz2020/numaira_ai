@@ -3,7 +3,7 @@ import sys
 import logging
 from config import Config
 from utils.logging import setup_logging
-from utils.document_processing.processor import process_files, update_document
+from utils.document_processing.processor import process_files, process_files_with_selected_data, update_document
 
 # Load configuration
 config = Config()
@@ -13,19 +13,20 @@ for key, value in config.get_env_vars().items():
 # Set up logging
 logger = setup_logging(level=logging.ERROR)  # Only show ERROR logs
 
-def main(docx_path=None, excel_path=None):
+def main(docx_path=None, excel_data=None):
     """Main entry point."""
     # If no paths provided, try to get them from command line
-    if docx_path is None or excel_path is None:
+    if docx_path is None or excel_data is None:
         if len(sys.argv) != 3:
             print("Usage: python main.py <docx_file> <excel_file>")
             sys.exit(1)
         docx_path = sys.argv[1]
-        excel_path = sys.argv[2]
+        excel_data = sys.argv[2]
     
     try:
         # Process files to find matches
-        results = process_files(docx_path, excel_path)
+        # results = process_files(docx_path, excel_path) uncomment if reading the excel file directly; if using excel list data, use the current one below
+        results = process_files_with_selected_data(docx_path, excel_data)
         
         # Print results if running as script
         if __name__ == "__main__":

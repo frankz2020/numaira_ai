@@ -41,29 +41,27 @@ class ErrorResponse(BaseModel):
     status: str = "error"
     message: str
 
+class ExcelData(BaseModel):
+    data: List[str]
+
 @app.post("/run-syncspace/", 
     response_model=SuccessResponse,
     responses={500: {"model": ErrorResponse}}
 )
 async def process_documents_endpoint(
-    docx_file: UploadFile = File(...),
-    excel_file: UploadFile = File(...)
+    excel_data: ExcelData,
+    docx_file: UploadFile = File(...)
 ):
     tmp_docx_path = None
-    tmp_excel_path = None
+    #tmp_excel_path = None
     try:
         # Save uploaded DOCX file to a temporary file
         with NamedTemporaryFile(delete=False, suffix='.docx') as tmp_docx:
             shutil.copyfileobj(docx_file.file, tmp_docx)
             tmp_docx_path = tmp_docx.name
-            
-        # Save uploaded Excel file to a temporary file
-        with NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_excel:
-            shutil.copyfileobj(excel_file.file, tmp_excel)
-            tmp_excel_path = tmp_excel.name
 
-        # Process the documents
-        result = process_documents(tmp_docx_path, tmp_excel_path)
+        # Process the documents with excel data list
+        result = process_documents(tmp_docx_path, excel_data.data)
         
         return JSONResponse(content=result)
         
@@ -76,11 +74,9 @@ async def process_documents_endpoint(
             }
         )
     finally:
-        # Ensure temporary files are removed even if an error occurs
+        # Ensure temporary file is removed even if an error occurs
         if tmp_docx_path and os.path.exists(tmp_docx_path):
             os.unlink(tmp_docx_path)
-        if tmp_excel_path and os.path.exists(tmp_excel_path):
-            os.unlink(tmp_excel_path)
 
 if __name__ == "__main__":
     import uvicorn

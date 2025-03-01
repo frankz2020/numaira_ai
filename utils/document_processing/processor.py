@@ -67,6 +67,76 @@ def find_exact_matches(sentence: str, excel_data: List[Dict[str, Any]]) -> List[
             matches.append((header, row["values"]))
     return matches
 
+def process_files_with_selected_data(docx_path: str, excel_data: list, timeout: int = None) -> List[Tuple[str, str, float]]:
+    """Process Word and Excel files to find and update matching content."""
+    try:
+        # Load input files
+        print("Loading files...")
+        sentences = read_docx(docx_path)
+        
+        if not sentences:
+            raise ValueError("No text found in the Word document")
+            
+        # Initialize LLM provider
+        config = Config()
+        llm_config = config.get_model_config()["llm"]
+        llm = get_llm_provider(llm_config["provider"])
+        
+        # Process each sentence
+        results = []
+        print("\nProcessing sentences...")
+        for sentence in tqdm(sentences.values(), desc="Analyzing", unit="sentence"):
+            # Find exact matches in sentence
+            matches = find_exact_matches(sentence, excel_data)
+            if not matches:
+                continue
+            
+            # Use LLM to update sentence with new values
+            prompt = f"""Update this sentence with the new values from Excel:
+
+Sentence: {sentence}
+
+Excel data:
+{chr(10).join(f'- {header}: {values}' for header, values in matches)}
+
+Rules:
+1. Keep the same sentence structure
+2. Only update the numerical values
+3. Keep all formatting (e.g., "$", "billion")
+4. Do not change any other text
+
+Output only the updated sentence."""
+
+            try:
+                updated_text = llm.analyze_text(prompt, timeout)
+                if isinstance(updated_text, dict):
+                    updated_text = updated_text.get("analysis", sentence)
+                
+                if updated_text and updated_text != sentence:
+                    # Calculate confidence for each match
+                    match_confidences = [
+                        calculate_confidence(sentence, header, values, updated_text, len(matches))
+                        for header, values in matches
+                    ]
+                    # Use average confidence if multiple matches
+                    confidence = sum(match_confidences) / len(match_confidences)
+                    
+                    results.append((
+                        sentence,
+                        updated_text,
+                        confidence
+                    ))
+                    
+            except Exception as e:
+                logger.error(f"Error updating sentence: {str(e)}")
+                continue
+        
+        return results
+            
+    except Exception as e:
+        logger.error(f"Error processing files: {str(e)}")
+        raise
+
 def process_files(docx_path: str, excel_path: str, timeout: int = None) -> List[Tuple[str, str, float]]:
     """Process Word and Excel files to find and update matching content."""
     try:
