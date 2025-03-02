@@ -16,7 +16,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://numaira.app"],
+    allow_origins=["http://numaira.app", "https://api.numaira-ai.click", "http://numaira-ai.click"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -43,6 +43,11 @@ class ErrorResponse(BaseModel):
 
 class ExcelData(BaseModel):
     data: List[str]
+
+@app.get("/health")
+async def health_check():
+    """健康检查端点，返回简单的'hello'确认API服务正常运行。"""
+    return {"message": "hello"}
 
 @app.post("/run-syncspace/", 
     response_model=SuccessResponse,
