@@ -67,12 +67,12 @@ def find_exact_matches(sentence: str, excel_data: List[Dict[str, Any]]) -> List[
             matches.append((header, row["values"]))
     return matches
 
-def process_files_with_selected_data(docx_path: str, excel_data: list, timeout: int = None) -> List[Tuple[str, str, float]]:
+def process_files_with_selected_data(docx_data: dict, excel_data: list, timeout: int = None) -> List[Tuple[str, str, float]]:
     """Process Word and Excel files to find and update matching content."""
     try:
         # Load input files
         print("Loading files...")
-        sentences = read_docx(docx_path)
+        sentences = docx_data.values()
         
         if not sentences:
             raise ValueError("No text found in the Word document")
@@ -85,7 +85,7 @@ def process_files_with_selected_data(docx_path: str, excel_data: list, timeout: 
         # Process each sentence
         results = []
         print("\nProcessing sentences...")
-        for sentence in tqdm(sentences.values(), desc="Analyzing", unit="sentence"):
+        for sentence in tqdm(sentences, desc="Analyzing", unit="sentence"):
             # Find exact matches in sentence
             matches = find_exact_matches(sentence, excel_data)
             if not matches:
@@ -241,6 +241,16 @@ def _update_paragraphs(doc: Document, updates: Dict[str, str]) -> int:
     
     return changes_made
 
+def find_changes(updates: List[Tuple[str, str, float]]) -> int:
+    """Count the number of actual changes in the processed results."""
+    changes_made = 0
+
+    for orig_text, mod_text, conf in updates:
+        if orig_text != mod_text and conf > 0.1:  # Only count if text has changed and confidence is above 10%
+            changes_made += 1
+    
+    return changes_made
+
 def _store_formatting(paragraph) -> List[Dict]:
     """Store formatting information from paragraph runs."""
     runs_info = []
@@ -307,4 +317,4 @@ def _apply_run_formatting(run, formatting: Dict) -> None:
     if formatting['color']:
         run.font.color.rgb = formatting['color']
     if formatting['highlight_color']:
-        run.font.highlight_color = formatting['highlight_color'] 
+        run.font.highlight_color = formatting['highlight_color']
